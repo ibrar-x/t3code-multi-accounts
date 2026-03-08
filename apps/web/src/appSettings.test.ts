@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  decodePersistedAppSettings,
   getAppModelOptions,
   getSlashModelOptions,
   normalizeCustomModelSlugs,
@@ -8,6 +9,18 @@ import {
   shouldShowFastTierIcon,
   resolveAppModelSelection,
 } from "./appSettings";
+
+function makeLegacyPersistedSettings(overrides: Record<string, unknown> = {}) {
+  return {
+    codexBinaryPath: "",
+    codexHomePath: "",
+    confirmThreadDelete: true,
+    enableAssistantStreaming: false,
+    codexServiceTier: "auto",
+    customCodexModels: [],
+    ...overrides,
+  };
+}
 
 describe("normalizeCustomModelSlugs", () => {
   it("normalizes aliases, removes built-ins, and deduplicates values", () => {
@@ -101,5 +114,71 @@ describe("shouldShowFastTierIcon", () => {
     expect(shouldShowFastTierIcon("gpt-5.4", "fast")).toBe(true);
     expect(shouldShowFastTierIcon("gpt-5.4", "auto")).toBe(false);
     expect(shouldShowFastTierIcon("gpt-5.3-codex", "fast")).toBe(false);
+  });
+});
+
+describe("decodePersistedAppSettings", () => {
+  it("defaults multiAccount without wiping legacy settings", () => {
+    const parsed = decodePersistedAppSettings(
+      JSON.stringify(
+        makeLegacyPersistedSettings({
+          codexBinaryPath: "/opt/codex",
+          confirmThreadDelete: false,
+          customCodexModels: ["custom/legacy-model"],
+        }),
+      ),
+    );
+
+    expect(parsed.codexBinaryPath).toBe("/opt/codex");
+    expect(parsed.confirmThreadDelete).toBe(false);
+    expect(parsed.customCodexModels).toEqual(["custom/legacy-model"]);
+    expect(parsed.multiAccount).toEqual({
+      accounts: [],
+      activeAccountByProvider: {},
+    });
+  });
+
+  it("does not fall back to full defaults when multiAccount is absent", () => {
+    const parsed = decodePersistedAppSettings(
+      JSON.stringify(
+        makeLegacyPersistedSettings({
+          codexServiceTier: "flex",
+        }),
+      ),
+    );
+
+    expect(parsed.codexServiceTier).toBe("flex");
+    expect(parsed.multiAccount).toEqual({
+      accounts: [],
+      activeAccountByProvider: {},
+    });
+  });
+
+  it("preserves persisted multiAccount values when present", () => {
+    const parsed = decodePersistedAppSettings(
+      JSON.stringify(
+        makeLegacyPersistedSettings({
+          multiAccount: {
+            accounts: [
+              {
+                id: "acc_codex_1",
+                providerKind: "codex",
+                name: "Work",
+                profilePath: "/Users/me/.t3code/accounts/acc_codex_1",
+                isDefault: true,
+                createdAt: "2026-01-01T00:00:00.000Z",
+                lastUsedAt: null,
+              },
+            ],
+            activeAccountByProvider: {
+              codex: "acc_codex_1",
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(parsed.multiAccount.accounts).toHaveLength(1);
+    expect(parsed.multiAccount.activeAccountByProvider.codex).toBe("acc_codex_1");
   });
 });

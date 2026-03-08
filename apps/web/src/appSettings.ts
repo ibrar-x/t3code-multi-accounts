@@ -1,6 +1,10 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { Option, Schema } from "effect";
-import { type ProviderKind, type ProviderServiceTier } from "@t3tools/contracts";
+import {
+  MultiAccountSettings,
+  type ProviderKind,
+  type ProviderServiceTier,
+} from "@t3tools/contracts";
 import { getDefaultModel, getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 
 const APP_SETTINGS_STORAGE_KEY = "t3code:app-settings:v1";
@@ -25,6 +29,13 @@ export const APP_SERVICE_TIER_OPTIONS = [
 ] as const;
 export type AppServiceTier = (typeof APP_SERVICE_TIER_OPTIONS)[number]["value"];
 const AppServiceTierSchema = Schema.Literals(["auto", "fast", "flex"]);
+function createDefaultMultiAccountSettings() {
+  return {
+    accounts: [],
+    activeAccountByProvider: {},
+  } as const satisfies typeof MultiAccountSettings.Type;
+}
+
 const MODELS_WITH_FAST_SUPPORT = new Set(["gpt-5.4"]);
 const BUILT_IN_MODEL_SLUGS_BY_PROVIDER: Record<ProviderKind, ReadonlySet<string>> = {
   codex: new Set(getModelOptions("codex").map((option) => option.slug)),
@@ -46,6 +57,10 @@ const AppSettingsSchema = Schema.Struct({
   codexServiceTier: AppServiceTierSchema.pipe(Schema.withConstructorDefault(() => Option.some("auto"))),
   customCodexModels: Schema.Array(Schema.String).pipe(
     Schema.withConstructorDefault(() => Option.some([])),
+  ),
+  multiAccount: MultiAccountSettings.pipe(
+    Schema.withDecodingDefault(createDefaultMultiAccountSettings),
+    Schema.withConstructorDefault(() => Option.some(createDefaultMultiAccountSettings())),
   ),
 });
 export type AppSettings = typeof AppSettingsSchema.Type;
@@ -71,7 +86,10 @@ export function shouldShowFastTierIcon(
   );
 }
 
-const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
+const DEFAULT_APP_SETTINGS = {
+  ...AppSettingsSchema.makeUnsafe({}),
+  multiAccount: createDefaultMultiAccountSettings(),
+} as const satisfies AppSettings;
 
 let listeners: Array<() => void> = [];
 let cachedRawSettings: string | null | undefined;
@@ -207,7 +225,7 @@ function emitChange(): void {
   }
 }
 
-function parsePersistedSettings(value: string | null): AppSettings {
+export function decodePersistedAppSettings(value: string | null): AppSettings {
   if (!value) {
     return DEFAULT_APP_SETTINGS;
   }
@@ -230,7 +248,7 @@ export function getAppSettingsSnapshot(): AppSettings {
   }
 
   cachedRawSettings = raw;
-  cachedSnapshot = parsePersistedSettings(raw);
+  cachedSnapshot = decodePersistedAppSettings(raw);
   return cachedSnapshot;
 }
 
