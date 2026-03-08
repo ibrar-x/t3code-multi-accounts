@@ -27,7 +27,6 @@ These files are outside the repo and are the canonical implementation references
 
 ## Task Files
 
-- [T06 - Codex Session Env Injection Wiring](./T06-codex-session-env-injection-wiring.md)
 - [T07 - ProviderService Account Resolution](./T07-providerservice-account-resolution.md)
 - [T08 - WS/Native API Account Methods](./T08-ws-native-api-account-methods.md)
 - [T09 - Settings UI: Account Manager Panel](./T09-settings-ui-account-manager-panel.md)
@@ -41,6 +40,7 @@ These files are outside the repo and are the canonical implementation references
 - [x] [T03 - App Settings Migration for Multi-Account](./completed/T03-app-settings-migration-for-multi-account.md)
 - [x] [T04 - Credential Strategy Interface + Registry](./completed/T04-credential-strategy-interface-registry.md)
 - [x] [T05 - Account Store and Account Manager](./completed/T05-account-store-and-account-manager.md)
+- [x] [T06 - Codex Session Env Injection Wiring](./completed/T06-codex-session-env-injection-wiring.md)
 
 ## Global Quality Gates
 

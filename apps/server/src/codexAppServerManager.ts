@@ -130,6 +130,7 @@ export interface CodexAppServerStartSessionInput {
   readonly model?: string;
   readonly serviceTier?: string;
   readonly resumeCursor?: unknown;
+  readonly env?: Record<string, string>;
   readonly providerOptions?: ProviderSessionStartInput["providerOptions"];
   readonly runtimeMode: RuntimeMode;
 }
@@ -527,6 +528,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     let context: CodexSessionContext | undefined;
 
     try {
+      const existing = this.sessions.get(threadId);
+      if (existing) {
+        try {
+          this.stopSession(threadId);
+        } catch {
+          this.sessions.delete(threadId);
+        }
+      }
+
       const resolvedCwd = input.cwd ?? process.cwd();
 
       const session: ProviderSession = {
@@ -548,12 +558,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
       });
+      const spawnEnv = {
+        ...process.env,
+        ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
+      };
+      if (input.env) {
+        Object.assign(spawnEnv, input.env);
+      }
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
-        env: {
-          ...process.env,
-          ...(codexHomePath ? { CODEX_HOME: codexHomePath } : {}),
-        },
+        env: spawnEnv,
         stdio: ["pipe", "pipe", "pipe"],
         shell: process.platform === "win32",
       });
@@ -945,8 +959,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error(`Unknown pending user input request: ${requestId}`);
     }
 
-    context.pendingUserInputs.delete(requestId);
     const codexAnswers = toCodexUserInputAnswers(answers);
+    context.pendingUserInputs.delete(requestId);
     this.writeMessage(context, {
       id: pendingRequest.jsonRpcId,
       result: {
