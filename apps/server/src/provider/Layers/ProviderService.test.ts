@@ -4,6 +4,7 @@ import path from "node:path";
 
 import type {
   ProviderApprovalDecision,
+  ProviderAccount,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -48,6 +49,18 @@ const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.make
 const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const makeProviderAccount = (
+  id: string,
+  providerKind: ProviderKind = "codex",
+): ProviderAccount => ({
+  id,
+  providerKind,
+  name: `Account ${id}`,
+  profilePath: `/tmp/${id}`,
+  isDefault: false,
+  createdAt: "2026-03-08T00:00:00.000Z",
+  lastUsedAt: null,
+});
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -870,6 +883,80 @@ validation.layer("ProviderServiceLive validation", (it) => {
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.threadId, session.threadId);
       }
+    }),
+  );
+
+  it.effect("blocks account switching when a running session is already bound to another account", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-account-guard");
+      const firstAccount = makeProviderAccount("acc_codex_1");
+      const secondAccount = makeProviderAccount("acc_codex_2");
+
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+        accountId: firstAccount.id,
+        accounts: [firstAccount, secondAccount],
+      });
+
+      const failure = yield* Effect.result(
+        provider.startSession(threadId, {
+          provider: "codex",
+          threadId,
+          runtimeMode: "full-access",
+          accountId: secondAccount.id,
+          accounts: [firstAccount, secondAccount],
+        }),
+      );
+
+      assert.equal(failure._tag, "Failure");
+      if (failure._tag !== "Failure") {
+        return;
+      }
+      assert.equal(failure.failure._tag, "ProviderValidationError");
+      if (failure.failure._tag !== "ProviderValidationError") {
+        return;
+      }
+      assert.equal(failure.failure.operation, "ProviderService.startSession");
+      assert.equal(
+        failure.failure.issue.includes(
+          "Cannot switch accounts while a session is actively running. Stop the session first.",
+        ),
+        true,
+      );
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+
+  it.effect("reports active account ids from running bindings", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("thread-active-account");
+      const account = makeProviderAccount("acc_codex_active");
+
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        runtimeMode: "full-access",
+        accountId: account.id,
+        accounts: [account],
+      });
+
+      const providerWithAccountUsage = provider as typeof provider & {
+        readonly getActiveAccountIds?: () => Effect.Effect<readonly string[]>;
+      };
+      const activeAccountIds = providerWithAccountUsage.getActiveAccountIds
+        ? yield* providerWithAccountUsage.getActiveAccountIds()
+        : [];
+      assert.deepEqual(activeAccountIds, [account.id]);
+
+      yield* provider.stopSession({ threadId });
+      const activeAccountIdsAfterStop = providerWithAccountUsage.getActiveAccountIds
+        ? yield* providerWithAccountUsage.getActiveAccountIds()
+        : [];
+      assert.deepEqual(activeAccountIdsAfterStop, []);
     }),
   );
 });

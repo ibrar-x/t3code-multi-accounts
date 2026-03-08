@@ -28,6 +28,7 @@ import {
   type KeybindingsConfig,
   type ResolvedKeybindingsConfig,
   type WsPush,
+  type ProviderAccount,
 } from "@t3tools/contracts";
 import { compileResolvedKeybindingRule, DEFAULT_KEYBINDINGS } from "./keybindings";
 import type {
@@ -63,6 +64,15 @@ const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 const asProviderItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
 const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+const makeProviderAccount = (id: string, providerKind: ProviderAccount["providerKind"]): ProviderAccount => ({
+  id,
+  providerKind,
+  name: `Account ${id}`,
+  profilePath: `/tmp/${id}`,
+  isDefault: false,
+  createdAt: "2026-03-08T00:00:00.000Z",
+  lastUsedAt: null,
+});
 
 const defaultOpenService: OpenShape = {
   openBrowser: () => Effect.void,
@@ -1142,6 +1152,46 @@ describe("WebSocket Server", () => {
     });
     expect(response.result).toBeUndefined();
     expect(response.error?.message).toContain("exceeds current turn count");
+  });
+
+  it("blocks accounts.remove when account is in use by an active session", async () => {
+    const account = makeProviderAccount("acc_codex_active", "codex");
+    const unsupported = () => Effect.die(new Error("Unsupported provider call in test")) as never;
+    const providerService: ProviderServiceShape & {
+      readonly getActiveAccountIds: () => Effect.Effect<readonly string[]>;
+    } = {
+      startSession: () => unsupported(),
+      sendTurn: () => unsupported(),
+      interruptTurn: () => unsupported(),
+      respondToRequest: () => unsupported(),
+      respondToUserInput: () => unsupported(),
+      stopSession: () => unsupported(),
+      listSessions: () => Effect.succeed([]),
+      getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
+      rollbackConversation: () => unsupported(),
+      streamEvents: Stream.empty,
+      getActiveAccountIds: () => Effect.succeed([account.id]),
+    };
+    const providerLayer = Layer.succeed(ProviderService, providerService);
+    server = await createTestServer({
+      cwd: "/test",
+      providerLayer,
+    });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.accountsRemove, {
+      accountId: account.id,
+      accounts: [account],
+    });
+    expect(response.result).toBeUndefined();
+    expect(response.error?.message).toContain(
+      `Cannot delete account "${account.id}" while it is in use by an active session.`,
+    );
   });
 
   it("keeps orchestration domain push behavior for provider runtime events", async () => {

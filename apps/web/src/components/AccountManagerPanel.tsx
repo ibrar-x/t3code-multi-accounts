@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type AppSettings, useAppSettings } from "../appSettings";
 import { ensureNativeApi } from "../nativeApi";
+import { useStore } from "../store";
 import {
   cleanupActiveAccountByProvider,
   clearActiveForProvider,
@@ -65,6 +66,11 @@ function AccountStatusBadge({ reason }: { reason: AccountCheckReason | undefined
 
 export function AccountManagerPanel() {
   const { settings, updateSettings } = useAppSettings();
+  const hasActiveSession = useStore((store) =>
+    store.threads.some(
+      (thread) => thread.session?.status === "running" || thread.session?.status === "connecting",
+    ),
+  );
   const settingsRef = useRef(settings);
   const [supportedProviders, setSupportedProviders] = useState<ProviderKind[]>(["codex"]);
   const [isLoading, setIsLoading] = useState(true);
@@ -250,6 +256,10 @@ export function AccountManagerPanel() {
 
   const handleSetActive = useCallback(
     (account: ProviderAccount) => {
+      if (hasActiveSession) {
+        setActionError("Account switching is blocked while a session is active.");
+        return;
+      }
       setActionError(null);
       const currentMultiAccount = settingsRef.current.multiAccount;
       commitMultiAccount({
@@ -260,11 +270,15 @@ export function AccountManagerPanel() {
         ),
       });
     },
-    [commitMultiAccount],
+    [commitMultiAccount, hasActiveSession],
   );
 
   const handleClearActive = useCallback(
     (providerKind: ProviderKind) => {
+      if (hasActiveSession) {
+        setActionError("Account switching is blocked while a session is active.");
+        return;
+      }
       setActionError(null);
       const currentMultiAccount = settingsRef.current.multiAccount;
       commitMultiAccount({
@@ -275,7 +289,7 @@ export function AccountManagerPanel() {
         ),
       });
     },
-    [commitMultiAccount],
+    [commitMultiAccount, hasActiveSession],
   );
 
   const handleSaveRename = useCallback(
@@ -350,6 +364,11 @@ export function AccountManagerPanel() {
           {actionError}
         </div>
       ) : null}
+      {hasActiveSession ? (
+        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          Account switching is locked while a session is running.
+        </div>
+      ) : null}
 
       <div className="space-y-4">
         {providersToRender.map((providerKind) => {
@@ -421,7 +440,7 @@ export function AccountManagerPanel() {
                       size="xs"
                       variant="ghost"
                       onClick={() => handleClearActive(providerKind)}
-                      disabled={!activeAccountId}
+                      disabled={!activeAccountId || hasActiveSession}
                     >
                       Use default credentials
                     </Button>
@@ -492,7 +511,7 @@ export function AccountManagerPanel() {
                                 size="xs"
                                 variant="outline"
                                 onClick={() => handleSetActive(account)}
-                                disabled={isActive}
+                                disabled={isActive || hasActiveSession}
                               >
                                 {isActive ? "Active account" : "Set active"}
                               </Button>

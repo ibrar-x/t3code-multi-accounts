@@ -27,7 +27,7 @@ These files are outside the repo and are the canonical implementation references
 
 ## Task Files
 
-- [T11 - Hardening and Edge Cases](./T11-hardening-and-edge-cases.md)
+- None pending.
 
 ## Completed Tasks
 
@@ -41,6 +41,7 @@ These files are outside the repo and are the canonical implementation references
 - [x] [T08 - WS/Native API Account Methods](./completed/T08-ws-native-api-account-methods.md)
 - [x] [T09 - Settings UI: Account Manager Panel](./completed/T09-settings-ui-account-manager-panel.md)
 - [x] [T10 - Chat Layout: Account Switcher](./completed/T10-chat-layout-account-switcher.md)
+- [x] [T11 - Hardening and Edge Cases](./completed/T11-hardening-and-edge-cases.md)
 
 ## Global Quality Gates
 
@@ -51,7 +52,7 @@ These files are outside the repo and are the canonical implementation references
 
 ## Global Completion Criteria
 
-- [ ] All ordered tasks complete.
-- [ ] All new methods/types are contract-aligned across server and web.
-- [ ] No regression in existing codex-only flows.
-- [ ] Quality gates pass.
+- [x] All ordered tasks complete.
+- [x] All new methods/types are contract-aligned across server and web.
+- [x] No regression in existing codex-only flows.
+- [x] Quality gates pass.
