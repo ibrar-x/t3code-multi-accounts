@@ -1,4 +1,4 @@
-# T05 - Account Store and Account Manager
+# T06 - Codex Session Env Injection Wiring
 
 ## Architecture Docs To Read
 These files are outside the repo and are the canonical implementation references for this feature set:
@@ -20,28 +20,27 @@ These files are outside the repo and are the canonical implementation references
 - [x] Execute positive, negative, and regression scenarios tied to this task's touched files and APIs.
 - [x] Use the right test surface for this task: unit/integration/RPC tests first; add Playwright for UI behavior changed by this task.
 - [x] If Playwright is used, validate end-to-end feature behavior and resulting state changes (not screenshot-only checks).
-- [x] Write functional test report: `multi-account-tasks/reports/T05-playwright-report.md` (include scenarios, expected vs actual outcomes, commands run, evidence paths, failures, and fixes).
-- [x] Create a dedicated branch before starting: `git checkout -b branch-t05-account-store-and-account-manager`
+- [x] Write functional test report: `multi-account-tasks/reports/T06-playwright-report.md` (include scenarios, expected vs actual outcomes, commands run, evidence paths, failures, and fixes).
+- [x] Create a dedicated branch before starting: `git checkout -b branch-t06-codex-session-env-injection-wiring`
 - [x] After implementation and all required tests pass, commit changes on this task branch.
 - [x] Push the task branch to remote: `git push -u origin <task-branch>`
 - [x] Merge this task branch into `main` after tests pass so the next task starts from the combined codebase.
 - [x] Before starting the next task, pull latest `main` and create the next `branch-*` from it.
-- [x] Read: `FEATURE-04-account-manager.md`
-- [x] Implement account persistence/state helpers.
-- [x] Implement account manager CRUD/login/check/remove/session-env API.
-- [x] Add tests for add/remove/check and cleanup on failed login.
-- [x] Touch:
-  - `apps/server/src/accounts/accountStore.ts` (new)
-  - `apps/server/src/accounts/accountManager.ts` (new)
-  - `apps/server/src/accounts/accountManager.test.ts` (new)
+- [x] Read: `FEATURE-05-codex-session-env-injection.md`
+- [x] Wire account-derived `CODEX_HOME` env into codex app-server startup path.
+- [x] Keep existing provider option behavior intact (`codexHomePath`, `binaryPath`).
+- [x] Add tests around env selection and validation order.
+- [ ] Touch:
+  - `apps/server/src/codexAppServerManager.ts`
+  - `apps/server/src/codexAppServerManager.accountEnv.test.ts` (new)
 
 
 ## Functional Scenarios (Must Pass)
 
-- [x] Validate account add/list/remove/check workflows persist correctly across manager reloads.
-- [x] Validate login/check failure cleanup leaves no partial account artifacts.
-- [x] Validate duplicate/missing account operations return clear, deterministic errors.
-- [x] Validate profile path/state cleanup after remove is complete and safe.
+- [x] Validate selected account injects account-derived `CODEX_HOME` into codex app-server startup.
+- [x] Validate existing provider options (`codexHomePath`, `binaryPath`) retain documented precedence/behavior.
+- [x] Validate no-account sessions still use existing default env behavior.
+- [x] Validate invalid or missing account env paths fail safely with actionable errors/warnings.
 
 ## Quality Gates
 - [x] `bun run lint`
