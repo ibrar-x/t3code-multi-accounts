@@ -11,6 +11,7 @@
  */
 import {
   NonNegativeInt,
+  type ProviderAccount,
   ThreadId,
   ProviderInterruptTurnInput,
   ProviderRespondToRequestInput,
@@ -32,6 +33,7 @@ import {
 } from "../Services/ProviderSessionDirectory.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
+import { accountManager } from "../../accounts/accountManager.ts";
 
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
@@ -105,6 +107,39 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function resolveSessionAccount(input: ProviderSessionStartInput): ProviderAccount | undefined {
+  const provider = input.provider ?? "codex";
+  const providerAccounts = (input.accounts ?? []).filter(
+    (account) => account.providerKind === provider,
+  );
+
+  if (input.account) {
+    if (input.account.providerKind === provider) {
+      return input.account;
+    }
+    console.warn(
+      `[ProviderService] Ignoring account "${input.account.id}" for provider "${input.account.providerKind}" while starting "${provider}" session.`,
+    );
+  }
+
+  if (input.accountId) {
+    const explicitAccount = providerAccounts.find((account) => account.id === input.accountId);
+    if (explicitAccount) {
+      return explicitAccount;
+    }
+    console.warn(
+      `[ProviderService] accountId "${input.accountId}" not found for provider "${provider}". Falling back to default credentials.`,
+    );
+  }
+
+  const defaultAccount = providerAccounts.find((account) => account.isDefault);
+  if (defaultAccount) {
+    return defaultAccount;
+  }
+
+  return undefined;
 }
 
 const makeProviderService = (options?: ProviderServiceLiveOptions) =>
@@ -263,8 +298,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           threadId,
           provider: parsed.provider ?? "codex",
         };
+        const resolvedAccount = resolveSessionAccount(input);
+        const accountEnv = resolvedAccount ? accountManager.getSessionEnv(resolvedAccount) : undefined;
+        if (resolvedAccount && accountEnv === undefined) {
+          console.warn(
+            `[ProviderService] Account "${resolvedAccount.id}" did not resolve session env overrides. Falling back to provider defaults.`,
+          );
+        }
         const adapter = yield* registry.getByProvider(input.provider);
-        const session = yield* adapter.startSession(input);
+        const adapterInput: ProviderSessionStartInput = {
+          ...input,
+          ...(accountEnv !== undefined ? { env: accountEnv } : {}),
+        };
+        const session = yield* adapter.startSession(adapterInput);
 
         if (session.provider !== adapter.provider) {
           return yield* toValidationError(
