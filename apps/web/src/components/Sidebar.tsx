@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DEFAULT_RUNTIME_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
+  type ProviderKind,
   type DesktopUpdateState,
   ProjectId,
   ThreadId,
@@ -32,6 +33,7 @@ import { readNativeApi } from "../nativeApi";
 import { type DraftThreadEnvMode, useComposerDraftStore } from "../composerDraftStore";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { toastManager } from "./ui/toast";
+import { AccountSwitcher } from "./AccountSwitcher";
 import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
@@ -283,6 +285,9 @@ export default function Sidebar() {
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
   });
+  const activeDraftProvider = useComposerDraftStore((store) =>
+    routeThreadId ? (store.draftsByThreadId[routeThreadId]?.provider ?? null) : null,
+  );
   const { data: keybindings = EMPTY_KEYBINDINGS } = useQuery({
     ...serverConfigQueryOptions(),
     select: (config) => config.keybindings,
@@ -312,6 +317,15 @@ export default function Sidebar() {
     () => new Map(projects.map((project) => [project.id, project.cwd] as const)),
     [projects],
   );
+  const activeRouteThread = useMemo(
+    () => (routeThreadId ? threads.find((thread) => thread.id === routeThreadId) ?? null : null),
+    [routeThreadId, threads],
+  );
+  const activeProviderForSwitcher: ProviderKind =
+    activeRouteThread?.session?.provider ?? activeDraftProvider ?? "codex";
+  const isAccountSwitcherLocked =
+    activeRouteThread?.session?.status === "running" ||
+    activeRouteThread?.session?.status === "connecting";
   const threadGitTargets = useMemo(
     () =>
       threads.map((thread) => ({
@@ -1024,6 +1038,12 @@ export default function Sidebar() {
       )}
 
       <SidebarContent className="gap-0">
+        <div className="px-2 pb-1">
+          <AccountSwitcher
+            provider={activeProviderForSwitcher}
+            disabled={isAccountSwitcherLocked}
+          />
+        </div>
         <SidebarGroup className="px-2 py-2">
           <SidebarMenu>
             {projects.map((project) => {

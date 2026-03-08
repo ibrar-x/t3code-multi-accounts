@@ -27,7 +27,6 @@ These files are outside the repo and are the canonical implementation references
 
 ## Task Files
 
-- [T10 - Chat Layout: Account Switcher](./T10-chat-layout-account-switcher.md)
 - [T11 - Hardening and Edge Cases](./T11-hardening-and-edge-cases.md)
 
 ## Completed Tasks
@@ -41,6 +40,7 @@ These files are outside the repo and are the canonical implementation references
 - [x] [T07 - ProviderService Account Resolution](./completed/T07-providerservice-account-resolution.md)
 - [x] [T08 - WS/Native API Account Methods](./completed/T08-ws-native-api-account-methods.md)
 - [x] [T09 - Settings UI: Account Manager Panel](./completed/T09-settings-ui-account-manager-panel.md)
+- [x] [T10 - Chat Layout: Account Switcher](./completed/T10-chat-layout-account-switcher.md)
 
 ## Global Quality Gates
 
