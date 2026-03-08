@@ -949,6 +949,18 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             message: `Account "${body.accountId}" not found.`,
           });
         }
+        const providerService = yield* ProviderService;
+        const providerServiceWithAccountUsage = providerService as typeof providerService & {
+          readonly getActiveAccountIds?: () => Effect.Effect<readonly string[]>;
+        };
+        const activeAccountIds = providerServiceWithAccountUsage.getActiveAccountIds
+          ? yield* providerServiceWithAccountUsage.getActiveAccountIds()
+          : ([] as readonly string[]);
+        if (activeAccountIds.includes(account.id)) {
+          return yield* new RouteRequestError({
+            message: `Cannot delete account "${account.id}" while it is in use by an active session.`,
+          });
+        }
         yield* Effect.tryPromise({
           try: () => accountManager.removeAccount(account),
           catch: (cause) =>

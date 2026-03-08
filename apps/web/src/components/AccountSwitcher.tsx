@@ -1,6 +1,6 @@
 import type { AccountCheckReason, ProviderAccount, ProviderKind } from "@t3tools/contracts";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { type AppSettings, useAppSettings } from "../appSettings";
 import { clearActiveForProvider, setActiveForAccount } from "./AccountManagerPanel.state";
@@ -79,6 +79,31 @@ export function AccountSwitcher({ provider, disabled = false }: AccountSwitcherP
   const activeAccount = getActiveAccountForProvider(providerAccounts, activeAccountId);
 
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
+
+  useEffect(() => {
+    if (!activeAccountId) {
+      return;
+    }
+    if (activeAccount) {
+      return;
+    }
+    updateSettings({
+      multiAccount: {
+        accounts: settings.multiAccount.accounts,
+        activeAccountByProvider: clearActiveForProvider(
+          settings.multiAccount.activeAccountByProvider,
+          provider,
+        ),
+      },
+    });
+  }, [
+    activeAccount,
+    activeAccountId,
+    provider,
+    settings.multiAccount.accounts,
+    settings.multiAccount.activeAccountByProvider,
+    updateSettings,
+  ]);
 
   const handleChange = (value: string) => {
     if (disabled) {

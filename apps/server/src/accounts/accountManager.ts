@@ -26,6 +26,9 @@ export interface AccountManager {
   checkAllAccounts(accounts?: readonly ProviderAccount[]): Promise<AccountCheckResponse[]>;
   getSessionEnv(account: ProviderAccount | undefined): Record<string, string> | undefined;
   isLoginInProgress(profilePath: string): boolean;
+  ensureAccountsDirPermissions(): Promise<void>;
+  cleanupOrphanedProfiles(): Promise<void>;
+  runStartupMaintenance(): Promise<void>;
 }
 
 export interface AccountManagerOptions {
@@ -64,6 +67,28 @@ async function resolveAccount(
 
 function createDefaultAccountId(): string {
   return `acc_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+}
+
+export function assertProfilePathWithinAccountsDir(profilePath: string, accountsDir: string): string {
+  const resolvedAccountsDir = path.resolve(accountsDir);
+  const resolvedProfilePath = path.resolve(profilePath);
+  const insideAccountsDir = resolvedProfilePath.startsWith(`${resolvedAccountsDir}${path.sep}`);
+  if (!insideAccountsDir) {
+    throw new Error(
+      `Security: profilePath "${profilePath}" is outside accounts directory "${resolvedAccountsDir}".`,
+    );
+  }
+  return resolvedProfilePath;
+}
+
+async function readProviderKind(profilePath: string): Promise<ProviderKind | null> {
+  try {
+    const raw = await fs.readFile(path.join(profilePath, PROVIDER_FILE), "utf8");
+    const parsed = JSON.parse(raw) as { kind?: unknown };
+    return typeof parsed.kind === "string" ? (parsed.kind as ProviderKind) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function createAccountManager(options: AccountManagerOptions = {}): AccountManager {
@@ -111,7 +136,7 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
         throw new Error("A login is already in progress for this account. Please wait.");
       }
 
-      await fs.mkdir(accountsDir, { recursive: true });
+      await this.ensureAccountsDirPermissions();
       await strategy.initProfileDir(profilePath);
       await fs.writeFile(
         path.join(profilePath, PROVIDER_FILE),
@@ -181,12 +206,16 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
       if (!resolvedAccount) {
         throw new Error(`Account "${resolvedId}" not found.`);
       }
+      const safeProfilePath = assertProfilePathWithinAccountsDir(
+        resolvedAccount.profilePath,
+        accountsDir,
+      );
 
       if (supportsProvider(resolvedAccount.providerKind)) {
         const strategy = resolveStrategy(resolvedAccount.providerKind);
-        await strategy.removeProfile(resolvedAccount.profilePath);
+        await strategy.removeProfile(safeProfilePath);
       } else {
-        await fs.rm(resolvedAccount.profilePath, { recursive: true, force: true });
+        await fs.rm(safeProfilePath, { recursive: true, force: true });
       }
 
       await store.removeAccount(resolvedAccount.id);
@@ -211,7 +240,17 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
       }
 
       const strategy = resolveStrategy(resolvedAccount.providerKind);
-      const status = await strategy.checkCredentials(resolvedAccount.profilePath);
+      let safeProfilePath: string;
+      try {
+        safeProfilePath = assertProfilePathWithinAccountsDir(resolvedAccount.profilePath, accountsDir);
+      } catch {
+        return {
+          accountId: resolvedAccount.id,
+          valid: false,
+          reason: "missing",
+        };
+      }
+      const status = await strategy.checkCredentials(safeProfilePath);
       return {
         accountId: resolvedAccount.id,
         valid: status.valid,
@@ -230,6 +269,56 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
     },
     isLoginInProgress(profilePath) {
       return loginInProgress.has(profilePath);
+    },
+    async ensureAccountsDirPermissions() {
+      await fs.mkdir(accountsDir, { recursive: true });
+      await fs.chmod(accountsDir, 0o700).catch(() => undefined);
+    },
+    async cleanupOrphanedProfiles() {
+      const knownProfiles = new Set(
+        (await store.listAccounts()).map((account) =>
+          path.resolve(account.profilePath),
+        ),
+      );
+      const entries = await fs.readdir(accountsDir, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (!entry.name.startsWith("acc_")) continue;
+
+        const profilePath = path.join(accountsDir, entry.name);
+        let safeProfilePath: string;
+        try {
+          safeProfilePath = assertProfilePathWithinAccountsDir(profilePath, accountsDir);
+        } catch {
+          continue;
+        }
+        if (knownProfiles.has(path.resolve(safeProfilePath))) {
+          continue;
+        }
+
+        const providerKind = await readProviderKind(safeProfilePath);
+        if (!providerKind) {
+          await fs.rm(safeProfilePath, { recursive: true, force: true });
+          continue;
+        }
+        if (!supportsProvider(providerKind)) {
+          continue;
+        }
+
+        const strategy = resolveStrategy(providerKind);
+        const credentialStatus = await strategy.checkCredentials(safeProfilePath).catch(() => ({
+          valid: false,
+          reason: "malformed" as const,
+        }));
+
+        if (!credentialStatus.valid && credentialStatus.reason !== "expired") {
+          await fs.rm(safeProfilePath, { recursive: true, force: true });
+        }
+      }
+    },
+    async runStartupMaintenance() {
+      await this.ensureAccountsDirPermissions();
+      await this.cleanupOrphanedProfiles();
     },
   };
 }
