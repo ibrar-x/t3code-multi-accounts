@@ -27,7 +27,6 @@ These files are outside the repo and are the canonical implementation references
 
 ## Task Files
 
-- [T08 - WS/Native API Account Methods](./T08-ws-native-api-account-methods.md)
 - [T09 - Settings UI: Account Manager Panel](./T09-settings-ui-account-manager-panel.md)
 - [T10 - Chat Layout: Account Switcher](./T10-chat-layout-account-switcher.md)
 - [T11 - Hardening and Edge Cases](./T11-hardening-and-edge-cases.md)
@@ -41,6 +40,7 @@ These files are outside the repo and are the canonical implementation references
 - [x] [T05 - Account Store and Account Manager](./completed/T05-account-store-and-account-manager.md)
 - [x] [T06 - Codex Session Env Injection Wiring](./completed/T06-codex-session-env-injection-wiring.md)
 - [x] [T07 - ProviderService Account Resolution](./completed/T07-providerservice-account-resolution.md)
+- [x] [T08 - WS/Native API Account Methods](./completed/T08-ws-native-api-account-methods.md)
 
 ## Global Quality Gates
 

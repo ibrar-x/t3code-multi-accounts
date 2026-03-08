@@ -186,6 +186,13 @@ export function createWsNativeApi(): NativeApi {
       getConfig: () => transport.request(WS_METHODS.serverGetConfig),
       upsertKeybinding: (input) => transport.request(WS_METHODS.serverUpsertKeybinding, input),
     },
+    accounts: {
+      list: (input) => transport.request(WS_METHODS.accountsList, input),
+      add: (input) => transport.request(WS_METHODS.accountsAdd, input),
+      remove: (input) => transport.request(WS_METHODS.accountsRemove, input),
+      check: (input) => transport.request(WS_METHODS.accountsCheck, input),
+      supported: () => transport.request(WS_METHODS.accountsSupported),
+    },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
       dispatchCommand: (command) =>
