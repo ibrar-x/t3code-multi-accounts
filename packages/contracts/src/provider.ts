@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
+import { ProviderAccount } from "./accounts";
 import { ProviderModelOptions } from "./model";
 import {
   ApprovalRequestId,
@@ -62,6 +63,9 @@ const ProviderStartOptions = Schema.Struct({
 export const ProviderSessionStartInput = Schema.Struct({
   threadId: ThreadId,
   provider: Schema.optional(ProviderKind),
+  accountId: Schema.optional(TrimmedNonEmptyStringSchema),
+  account: Schema.optional(ProviderAccount),
+  accounts: Schema.optional(Schema.Array(ProviderAccount)),
   cwd: Schema.optional(TrimmedNonEmptyStringSchema),
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   modelOptions: Schema.optional(ProviderModelOptions),
@@ -69,6 +73,7 @@ export const ProviderSessionStartInput = Schema.Struct({
   serviceTier: Schema.optional(Schema.NullOr(ProviderServiceTier)),
   approvalPolicy: Schema.optional(ProviderApprovalPolicy),
   sandboxMode: Schema.optional(ProviderSandboxMode),
+  env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
   providerOptions: Schema.optional(ProviderStartOptions),
   runtimeMode: RuntimeMode,
 });
