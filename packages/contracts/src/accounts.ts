@@ -1,0 +1,78 @@
+import { Schema } from "effect";
+import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
+import { ProviderKind } from "./orchestration";
+
+const AccountId = TrimmedNonEmptyString;
+const AccountName = TrimmedNonEmptyString.check(Schema.isMaxLength(120));
+const AccountProfilePath = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
+
+export const ProviderAccount = Schema.Struct({
+  id: AccountId,
+  providerKind: ProviderKind,
+  name: AccountName,
+  profilePath: AccountProfilePath,
+  isDefault: Schema.Boolean,
+  createdAt: IsoDateTime,
+  lastUsedAt: Schema.NullOr(IsoDateTime),
+});
+export type ProviderAccount = typeof ProviderAccount.Type;
+
+export const ActiveAccountByProvider = Schema.Struct({
+  codex: Schema.optional(AccountId),
+  claudeCode: Schema.optional(AccountId),
+  cursor: Schema.optional(AccountId),
+});
+export type ActiveAccountByProvider = typeof ActiveAccountByProvider.Type;
+
+export const MultiAccountSettings = Schema.Struct({
+  accounts: Schema.Array(ProviderAccount),
+  activeAccountByProvider: ActiveAccountByProvider,
+});
+export type MultiAccountSettings = typeof MultiAccountSettings.Type;
+
+export const AccountAddRequest = Schema.Struct({
+  providerKind: ProviderKind,
+  name: AccountName,
+  apiKey: Schema.optional(TrimmedNonEmptyString),
+});
+export type AccountAddRequest = typeof AccountAddRequest.Type;
+
+export const AccountAddResponse = Schema.Struct({
+  account: ProviderAccount,
+});
+export type AccountAddResponse = typeof AccountAddResponse.Type;
+
+export const AccountRemoveRequest = Schema.Struct({
+  accountId: AccountId,
+});
+export type AccountRemoveRequest = typeof AccountRemoveRequest.Type;
+
+export const AccountRemoveResponse = Schema.Struct({
+  success: Schema.Boolean,
+});
+export type AccountRemoveResponse = typeof AccountRemoveResponse.Type;
+
+export const AccountCheckRequest = Schema.Struct({
+  accountId: AccountId,
+});
+export type AccountCheckRequest = typeof AccountCheckRequest.Type;
+
+export const AccountCheckReason = Schema.Literals(["ok", "missing", "malformed", "expired"]);
+export type AccountCheckReason = typeof AccountCheckReason.Type;
+
+export const AccountCheckResponse = Schema.Struct({
+  accountId: AccountId,
+  valid: Schema.Boolean,
+  reason: AccountCheckReason,
+});
+export type AccountCheckResponse = typeof AccountCheckResponse.Type;
+
+export const AccountListResponse = Schema.Struct({
+  accounts: Schema.Array(ProviderAccount),
+});
+export type AccountListResponse = typeof AccountListResponse.Type;
+
+export const AccountSupportedProvidersResponse = Schema.Struct({
+  providers: Schema.Array(ProviderKind),
+});
+export type AccountSupportedProvidersResponse = typeof AccountSupportedProvidersResponse.Type;
