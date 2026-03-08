@@ -26,6 +26,7 @@ import { Server } from "./wsServer";
 import { ServerLoggerLive } from "./serverLogger";
 import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { accountManager } from "./accounts/accountManager.ts";
 
 export class StartupError extends Data.TaggedError("StartupError")<{
   readonly message: string;
@@ -252,6 +253,22 @@ const makeServerProgram = (input: CliInput) =>
         },
       );
     }
+
+    yield* Effect.tryPromise({
+      try: () => accountManager.runStartupMaintenance(),
+      catch: (cause) =>
+        new StartupError({
+          message: "Failed to run account startup maintenance",
+          cause,
+        }),
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("account startup maintenance skipped", {
+          detail: error.message,
+          cause: error.cause,
+        }),
+      ),
+    );
 
     yield* start;
     yield* Effect.forkChild(recordStartupHeartbeat);

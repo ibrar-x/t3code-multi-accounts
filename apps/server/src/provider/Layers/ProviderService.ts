@@ -97,6 +97,18 @@ function toRuntimePayloadFromSession(session: ProviderSession): Record<string, u
   };
 }
 
+function readRuntimeAccountId(
+  runtimePayload: ProviderRuntimeBinding["runtimePayload"],
+): string | undefined {
+  if (!runtimePayload || typeof runtimePayload !== "object" || Array.isArray(runtimePayload)) {
+    return undefined;
+  }
+  const rawAccountId = "accountId" in runtimePayload ? runtimePayload.accountId : undefined;
+  if (typeof rawAccountId !== "string") return undefined;
+  const trimmed = rawAccountId.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function readPersistedCwd(
   runtimePayload: ProviderRuntimeBinding["runtimePayload"],
 ): string | undefined {
@@ -172,6 +184,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     const upsertSessionBinding = (
       session: ProviderSession,
       threadId: ThreadId,
+      options?: {
+        readonly accountId?: string;
+      },
     ) =>
       directory.upsert({
         threadId,
@@ -179,7 +194,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         runtimeMode: session.runtimeMode,
         status: toRuntimeStatus(session),
         ...(session.resumeCursor !== undefined ? { resumeCursor: session.resumeCursor } : {}),
-        runtimePayload: toRuntimePayloadFromSession(session),
+        runtimePayload: {
+          ...toRuntimePayloadFromSession(session),
+          ...(options?.accountId ? { accountId: options.accountId } : {}),
+        },
       });
 
     const providers = yield* registry.listProviders();
@@ -299,6 +317,27 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           provider: parsed.provider ?? "codex",
         };
         const resolvedAccount = resolveSessionAccount(input);
+        const requestedAccountId = resolvedAccount?.id;
+        const hasAccountSelectionInput =
+          parsed.account !== undefined ||
+          parsed.accountId !== undefined ||
+          parsed.accounts !== undefined;
+        if (hasAccountSelectionInput) {
+          const existingBinding = yield* directory
+            .getBinding(threadId)
+            .pipe(Effect.orElseSucceed(() => Option.none<ProviderRuntimeBinding>()));
+          const activeBinding = Option.getOrUndefined(existingBinding);
+          if (activeBinding?.status === "running") {
+            const activeAccountId = readRuntimeAccountId(activeBinding.runtimePayload);
+            if ((requestedAccountId ?? null) !== (activeAccountId ?? null)) {
+              return yield* toValidationError(
+                "ProviderService.startSession",
+                "Cannot switch accounts while a session is actively running. Stop the session first.",
+              );
+            }
+          }
+        }
+
         const accountEnv = resolvedAccount ? accountManager.getSessionEnv(resolvedAccount) : undefined;
         if (resolvedAccount && accountEnv === undefined) {
           console.warn(
@@ -319,7 +358,11 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           );
         }
 
-        yield* upsertSessionBinding(session, threadId);
+        yield* upsertSessionBinding(
+          session,
+          threadId,
+          requestedAccountId ? { accountId: requestedAccountId } : undefined,
+        );
         yield* analytics.record("provider.session.started", {
           provider: session.provider,
           runtimeMode: input.runtimeMode,
@@ -354,6 +397,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           operation: "ProviderService.sendTurn",
           allowRecovery: true,
         });
+        const existingBinding = yield* directory
+          .getBinding(input.threadId)
+          .pipe(Effect.orElseSucceed(() => Option.none<ProviderRuntimeBinding>()));
+        const activeAccountId = readRuntimeAccountId(
+          Option.getOrUndefined(existingBinding)?.runtimePayload,
+        );
         const turn = yield* routed.adapter.sendTurn(input);
         yield* directory.upsert({
           threadId: input.threadId,
@@ -361,6 +410,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           status: "running",
           ...(turn.resumeCursor !== undefined ? { resumeCursor: turn.resumeCursor } : {}),
           runtimePayload: {
+            ...(activeAccountId ? { accountId: activeAccountId } : {}),
             activeTurnId: turn.turnId,
             lastRuntimeEvent: "provider.sendTurn",
             lastRuntimeEventAt: new Date().toISOString(),
@@ -521,6 +571,26 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         });
       });
 
+    const getActiveAccountIds = () =>
+      Effect.gen(function* () {
+        const threadIds = yield* directory.listThreadIds();
+        const accountIds = new Set<string>();
+        for (const threadId of threadIds) {
+          const bindingOption = yield* directory
+            .getBinding(threadId)
+            .pipe(Effect.orElseSucceed(() => Option.none<ProviderRuntimeBinding>()));
+          const binding = Option.getOrUndefined(bindingOption);
+          if (!binding || binding.status !== "running") {
+            continue;
+          }
+          const accountId = readRuntimeAccountId(binding.runtimePayload);
+          if (accountId) {
+            accountIds.add(accountId);
+          }
+        }
+        return Array.from(accountIds.values());
+      });
+
     const runStopAll = () =>
       Effect.gen(function* () {
         const threadIds = yield* directory.listThreadIds();
@@ -553,7 +623,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       ),
     );
 
-    return {
+    const providerService = {
       startSession,
       sendTurn,
       interruptTurn,
@@ -565,6 +635,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       rollbackConversation,
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     } satisfies ProviderServiceShape;
+
+    return Object.assign(providerService, {
+      getActiveAccountIds,
+    });
   });
 
 export const ProviderServiceLive = Layer.effect(ProviderService, makeProviderService());
