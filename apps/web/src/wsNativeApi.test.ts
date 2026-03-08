@@ -349,6 +349,33 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards account rpc calls to the websocket account methods", async () => {
+    requestMock.mockResolvedValue({});
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.accounts.list({ accounts: [] });
+    await api.accounts.add({ providerKind: "codex", name: "Work" });
+    await api.accounts.remove({ accountId: "acc_1", accounts: [] });
+    await api.accounts.check({ accountId: "acc_1", accounts: [] });
+    await api.accounts.supported();
+
+    expect(requestMock).toHaveBeenNthCalledWith(1, WS_METHODS.accountsList, { accounts: [] });
+    expect(requestMock).toHaveBeenNthCalledWith(2, WS_METHODS.accountsAdd, {
+      providerKind: "codex",
+      name: "Work",
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(3, WS_METHODS.accountsRemove, {
+      accountId: "acc_1",
+      accounts: [],
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(4, WS_METHODS.accountsCheck, {
+      accountId: "acc_1",
+      accounts: [],
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(5, WS_METHODS.accountsSupported);
+  });
+
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {
     requestMock.mockResolvedValue({ diff: "patch" });
     const { createWsNativeApi } = await import("./wsNativeApi");

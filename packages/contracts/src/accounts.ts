@@ -5,6 +5,8 @@ import { ProviderKind } from "./orchestration";
 const AccountId = TrimmedNonEmptyString;
 const AccountName = TrimmedNonEmptyString.check(Schema.isMaxLength(120));
 const AccountProfilePath = TrimmedNonEmptyString.check(Schema.isMaxLength(4096));
+export const AccountCheckReason = Schema.Literals(["ok", "missing", "malformed", "expired"]);
+export type AccountCheckReason = typeof AccountCheckReason.Type;
 
 export const ProviderAccount = Schema.Struct({
   id: AccountId,
@@ -12,6 +14,7 @@ export const ProviderAccount = Schema.Struct({
   name: AccountName,
   profilePath: AccountProfilePath,
   isDefault: Schema.Boolean,
+  credentialStatus: Schema.optional(AccountCheckReason),
   createdAt: IsoDateTime,
   lastUsedAt: Schema.NullOr(IsoDateTime),
 });
@@ -42,8 +45,14 @@ export const AccountAddResponse = Schema.Struct({
 });
 export type AccountAddResponse = typeof AccountAddResponse.Type;
 
+export const AccountListRequest = Schema.Struct({
+  accounts: Schema.optional(Schema.Array(ProviderAccount)),
+});
+export type AccountListRequest = typeof AccountListRequest.Type;
+
 export const AccountRemoveRequest = Schema.Struct({
   accountId: AccountId,
+  accounts: Schema.optional(Schema.Array(ProviderAccount)),
 });
 export type AccountRemoveRequest = typeof AccountRemoveRequest.Type;
 
@@ -54,11 +63,9 @@ export type AccountRemoveResponse = typeof AccountRemoveResponse.Type;
 
 export const AccountCheckRequest = Schema.Struct({
   accountId: AccountId,
+  accounts: Schema.optional(Schema.Array(ProviderAccount)),
 });
 export type AccountCheckRequest = typeof AccountCheckRequest.Type;
-
-export const AccountCheckReason = Schema.Literals(["ok", "missing", "malformed", "expired"]);
-export type AccountCheckReason = typeof AccountCheckReason.Type;
 
 export const AccountCheckResponse = Schema.Struct({
   accountId: AccountId,
