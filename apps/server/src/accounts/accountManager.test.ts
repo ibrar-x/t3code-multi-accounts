@@ -84,6 +84,7 @@ function createFixtureManager(input: {
     },
     now: () => new Date(input.nowIso ?? "2026-01-01T00:00:00.000Z"),
     generateId: input.idFactory ?? (() => "acc_fixed"),
+    readCodexProfile: async () => undefined,
   });
 }
 
@@ -134,11 +135,13 @@ describe("accountManager", () => {
     expect(reloadedList[0]?.id).toBe(account.id);
 
     const check = await reloadedManager.checkAccount(account.id);
-    expect(check).toEqual({
-      accountId: account.id,
-      valid: true,
-      reason: "ok",
-    });
+    expect(check).toEqual(
+      expect.objectContaining({
+        accountId: account.id,
+        valid: true,
+        reason: "ok",
+      }),
+    );
 
     await reloadedManager.removeAccount(account.id);
     const finalList = await reloadedManager.listAccounts();
@@ -231,10 +234,12 @@ describe("accountManager", () => {
       createdAt: "2026-01-01T00:00:00.000Z",
       lastUsedAt: null,
     });
-    expect(check).toEqual({
-      accountId: "acc_custom",
-      valid: false,
-      reason: "missing",
-    });
+    expect(check).toEqual(
+      expect.objectContaining({
+        accountId: "acc_custom",
+        valid: false,
+        reason: "missing",
+      }),
+    );
   });
 });

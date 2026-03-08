@@ -8,6 +8,41 @@ const AccountProfilePath = TrimmedNonEmptyString.check(Schema.isMaxLength(4096))
 export const AccountCheckReason = Schema.Literals(["ok", "missing", "malformed", "expired"]);
 export type AccountCheckReason = typeof AccountCheckReason.Type;
 
+export const CodexRateLimitWindow = Schema.Struct({
+  usedPercent: Schema.Number,
+  remainingPercent: Schema.optional(Schema.Number),
+  windowDurationMins: Schema.optional(Schema.Number),
+  resetsAt: Schema.optional(Schema.Number),
+});
+export type CodexRateLimitWindow = typeof CodexRateLimitWindow.Type;
+
+export const CodexRateLimitCredits = Schema.Struct({
+  hasCredits: Schema.optional(Schema.Boolean),
+  unlimited: Schema.optional(Schema.Boolean),
+  balance: Schema.optional(Schema.String),
+});
+export type CodexRateLimitCredits = typeof CodexRateLimitCredits.Type;
+
+export const CodexRateLimits = Schema.Struct({
+  limitId: Schema.optional(Schema.String),
+  limitName: Schema.optional(Schema.NullOr(Schema.String)),
+  planType: Schema.optional(Schema.String),
+  primary: Schema.optional(CodexRateLimitWindow),
+  secondary: Schema.optional(CodexRateLimitWindow),
+  credits: Schema.optional(CodexRateLimitCredits),
+});
+export type CodexRateLimits = typeof CodexRateLimits.Type;
+
+export const CodexAccountProfile = Schema.Struct({
+  type: Schema.optional(Schema.String),
+  email: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  planType: Schema.optional(Schema.String),
+  rateLimits: Schema.optional(CodexRateLimits),
+  syncedAt: Schema.optional(IsoDateTime),
+});
+export type CodexAccountProfile = typeof CodexAccountProfile.Type;
+
 export const ProviderAccount = Schema.Struct({
   id: AccountId,
   providerKind: ProviderKind,
@@ -15,6 +50,7 @@ export const ProviderAccount = Schema.Struct({
   profilePath: AccountProfilePath,
   isDefault: Schema.Boolean,
   credentialStatus: Schema.optional(AccountCheckReason),
+  codexProfile: Schema.optional(CodexAccountProfile),
   createdAt: IsoDateTime,
   lastUsedAt: Schema.NullOr(IsoDateTime),
 });
@@ -71,6 +107,7 @@ export const AccountCheckResponse = Schema.Struct({
   accountId: AccountId,
   valid: Schema.Boolean,
   reason: AccountCheckReason,
+  account: Schema.optional(ProviderAccount),
 });
 export type AccountCheckResponse = typeof AccountCheckResponse.Type;
 

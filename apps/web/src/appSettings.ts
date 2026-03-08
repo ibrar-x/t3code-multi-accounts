@@ -233,7 +233,21 @@ export function decodePersistedAppSettings(value: string | null): AppSettings {
   try {
     return normalizeAppSettings(Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema))(value));
   } catch {
-    return DEFAULT_APP_SETTINGS;
+    try {
+      const parsed = JSON.parse(value);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return DEFAULT_APP_SETTINGS;
+      }
+
+      const sanitized = {
+        ...parsed,
+        // Preserve legacy values if only the multi-account payload is malformed.
+        multiAccount: createDefaultMultiAccountSettings(),
+      };
+      return normalizeAppSettings(Schema.decodeSync(AppSettingsSchema)(sanitized));
+    } catch {
+      return DEFAULT_APP_SETTINGS;
+    }
   }
 }
 

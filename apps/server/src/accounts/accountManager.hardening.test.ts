@@ -98,6 +98,7 @@ describe("accountManager hardening", () => {
       getStrategy: () => strategy,
       generateId: () => "acc_fixed",
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      readCodexProfile: async () => undefined,
     });
 
     const orphan = path.join(accountsDir, "acc_orphan");
@@ -128,6 +129,7 @@ describe("accountManager hardening", () => {
       getStrategy: () => strategy,
       generateId: () => "acc_fixed",
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      readCodexProfile: async () => undefined,
     });
 
     const missing = path.join(accountsDir, "acc_orphan_missing");
@@ -156,6 +158,7 @@ describe("accountManager hardening", () => {
       getStrategy: () => strategy,
       generateId: () => "acc_fixed",
       now: () => new Date("2026-03-08T00:00:00.000Z"),
+      readCodexProfile: async () => undefined,
     });
 
     const unsafeProfilePath = path.join(rootDir, "..", "outside", "acc_escape");
