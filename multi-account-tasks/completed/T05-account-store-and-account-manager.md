@@ -22,10 +22,10 @@ These files are outside the repo and are the canonical implementation references
 - [x] If Playwright is used, validate end-to-end feature behavior and resulting state changes (not screenshot-only checks).
 - [x] Write functional test report: `multi-account-tasks/reports/T05-playwright-report.md` (include scenarios, expected vs actual outcomes, commands run, evidence paths, failures, and fixes).
 - [x] Create a dedicated branch before starting: `git checkout -b branch-t05-account-store-and-account-manager`
-- [ ] After implementation and all required tests pass, commit changes on this task branch.
-- [ ] Push the task branch to remote: `git push -u origin <task-branch>`
-- [ ] Merge this task branch into `main` after tests pass so the next task starts from the combined codebase.
-- [ ] Before starting the next task, pull latest `main` and create the next `branch-*` from it.
+- [x] After implementation and all required tests pass, commit changes on this task branch.
+- [x] Push the task branch to remote: `git push -u origin <task-branch>`
+- [x] Merge this task branch into `main` after tests pass so the next task starts from the combined codebase.
+- [x] Before starting the next task, pull latest `main` and create the next `branch-*` from it.
 - [x] Read: `FEATURE-04-account-manager.md`
 - [x] Implement account persistence/state helpers.
 - [x] Implement account manager CRUD/login/check/remove/session-env API.
