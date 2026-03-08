@@ -73,6 +73,8 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
+import { accountManager } from "./accounts/accountManager.ts";
+import { getSupportedProviders } from "./accounts/strategies/registry.ts";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -892,6 +894,101 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         const keybindingsConfig = yield* keybindingsManager.upsertKeybindingRule(body);
         return { keybindings: keybindingsConfig, issues: [] };
       }
+
+      case WS_METHODS.accountsList: {
+        const body = stripRequestTag(request.body);
+        const accounts = body.accounts ?? [];
+        const checks = yield* Effect.tryPromise({
+          try: () => accountManager.checkAllAccounts(accounts),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to list accounts: ${String(cause)}`,
+            }),
+        });
+        const checkByAccountId = new Map(checks.map((result) => [result.accountId, result.reason]));
+        return {
+          accounts: accounts.map((account) => ({
+            id: account.id,
+            providerKind: account.providerKind,
+            name: account.name,
+            profilePath: account.profilePath,
+            isDefault: account.isDefault,
+            credentialStatus: checkByAccountId.get(account.id),
+            createdAt: account.createdAt,
+            lastUsedAt: account.lastUsedAt,
+          })),
+        };
+      }
+
+      case WS_METHODS.accountsAdd: {
+        const body = stripRequestTag(request.body);
+        const account = yield* Effect.tryPromise({
+          try: () =>
+            accountManager.addAccount(
+              body.providerKind,
+              body.name,
+              body.apiKey ? { apiKey: body.apiKey } : undefined,
+            ),
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to add account: ${String(cause)}`,
+            }),
+        });
+        return { account };
+      }
+
+      case WS_METHODS.accountsRemove: {
+        const body = stripRequestTag(request.body);
+        const accounts = body.accounts ?? [];
+        const account = accounts.find((entry) => entry.id === body.accountId);
+        if (!account) {
+          return yield* new RouteRequestError({
+            message: `Account "${body.accountId}" not found.`,
+          });
+        }
+        yield* Effect.tryPromise({
+          try: () => accountManager.removeAccount(account),
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to remove account "${body.accountId}".`,
+            }),
+        });
+        return { success: true };
+      }
+
+      case WS_METHODS.accountsCheck: {
+        const body = stripRequestTag(request.body);
+        const accounts = body.accounts ?? [];
+        const account = accounts.find((entry) => entry.id === body.accountId);
+        if (!account) {
+          return {
+            accountId: body.accountId,
+            valid: false,
+            reason: "missing" as const,
+          };
+        }
+        return yield* Effect.tryPromise({
+          try: () => accountManager.checkAccount(account),
+          catch: (cause) =>
+            new RouteRequestError({
+              message:
+                cause instanceof Error
+                  ? cause.message
+                  : `Failed to check account "${body.accountId}".`,
+            }),
+        });
+      }
+
+      case WS_METHODS.accountsSupported:
+        return {
+          providers: getSupportedProviders(),
+        };
 
       default: {
         const _exhaustiveCheck: never = request.body;

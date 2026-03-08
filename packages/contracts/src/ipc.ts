@@ -41,6 +41,17 @@ import type {
   OrchestrationReadModel,
 } from "./orchestration";
 import { EditorId } from "./editor";
+import type {
+  AccountAddRequest,
+  AccountAddResponse,
+  AccountCheckRequest,
+  AccountCheckResponse,
+  AccountListRequest,
+  AccountListResponse,
+  AccountRemoveRequest,
+  AccountRemoveResponse,
+  AccountSupportedProvidersResponse,
+} from "./accounts";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -137,6 +148,13 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+  };
+  accounts: {
+    list: (input: AccountListRequest) => Promise<AccountListResponse>;
+    add: (input: AccountAddRequest) => Promise<AccountAddResponse>;
+    remove: (input: AccountRemoveRequest) => Promise<AccountRemoveResponse>;
+    check: (input: AccountCheckRequest) => Promise<AccountCheckResponse>;
+    supported: () => Promise<AccountSupportedProvidersResponse>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
