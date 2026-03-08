@@ -16,6 +16,7 @@ import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
 import { preferredTerminalEditor } from "../terminal-links";
+import { AccountManagerPanel } from "../components/AccountManagerPanel";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -301,6 +302,8 @@ function SettingsRouteView() {
                 </div>
               </div>
             </section>
+
+            <AccountManagerPanel />
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
