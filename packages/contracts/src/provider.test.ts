@@ -42,6 +42,16 @@ describe("ProviderSessionStartInput", () => {
       }),
     ).toThrow();
   });
+
+  it("accepts non-codex provider values in baseline contracts", () => {
+    const parsed = decodeProviderSessionStartInput({
+      threadId: "thread-1",
+      provider: "claudeCode",
+      runtimeMode: "full-access",
+    });
+
+    expect(parsed.provider).toBe("claudeCode");
+  });
 });
 
 describe("ProviderSendTurnInput", () => {

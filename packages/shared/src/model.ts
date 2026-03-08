@@ -10,8 +10,14 @@ import {
 
 type CatalogProvider = keyof typeof MODEL_OPTIONS_BY_PROVIDER;
 
+function toSlugSet(options: ReadonlyArray<{ readonly slug: ModelSlug }>): ReadonlySet<ModelSlug> {
+  return new Set(options.map((option) => option.slug));
+}
+
 const MODEL_SLUG_SET_BY_PROVIDER: Record<CatalogProvider, ReadonlySet<ModelSlug>> = {
-  codex: new Set(MODEL_OPTIONS_BY_PROVIDER.codex.map((option) => option.slug)),
+  codex: toSlugSet(MODEL_OPTIONS_BY_PROVIDER.codex),
+  claudeCode: toSlugSet(MODEL_OPTIONS_BY_PROVIDER.claudeCode),
+  cursor: toSlugSet(MODEL_OPTIONS_BY_PROVIDER.cursor),
 };
 
 export function getModelOptions(provider: ProviderKind = "codex") {

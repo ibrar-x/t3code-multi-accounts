@@ -55,6 +55,8 @@ const CodexProviderStartOptions = Schema.Struct({
 
 const ProviderStartOptions = Schema.Struct({
   codex: Schema.optional(CodexProviderStartOptions),
+  claudeCode: Schema.optional(Schema.Unknown),
+  cursor: Schema.optional(Schema.Unknown),
 });
 
 export const ProviderSessionStartInput = Schema.Struct({
