@@ -1,4 +1,4 @@
-import { type ProviderAccount, type ProviderKind, type AccountCheckReason } from "@t3tools/contracts";
+import { type ProviderAccount, type ProviderKind } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type AppSettings, useAppSettings } from "../appSettings";
@@ -9,7 +9,6 @@ import {
   clearActiveForProvider,
   normalizeSupportedProviders,
   removeAccountAndCleanupActive,
-  renameAccountById,
   setAccountCredentialStatus,
   setActiveForAccount,
   upsertAccountById,
@@ -17,25 +16,10 @@ import {
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
-const PROVIDER_LABELS: Record<ProviderKind, string> = {
-  codex: "Codex (OpenAI)",
-  claudeCode: "Claude Code (Anthropic)",
-  cursor: "Cursor",
-};
-
-const ACCOUNT_STATUS_LABELS: Record<AccountCheckReason, string> = {
-  ok: "Healthy",
-  missing: "Missing",
-  malformed: "Malformed",
-  expired: "Expired",
-};
-
-const ADD_FORM_DEFAULT: Record<ProviderKind, { name: string; apiKey: string }> = {
-  codex: { name: "", apiKey: "" },
-  claudeCode: { name: "", apiKey: "" },
-  cursor: { name: "", apiKey: "" },
-};
+const CODEX_ONLY_PROVIDER: ProviderKind = "codex";
+const DEFAULT_ACCOUNT_VALUE = "__default__";
 
 function toActionErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -44,24 +28,33 @@ function toActionErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function AccountStatusBadge({ reason }: { reason: AccountCheckReason | undefined }) {
-  if (!reason) {
-    return (
-      <Badge variant="outline" className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        Unknown
-      </Badge>
-    );
+function readPrimaryRemainingPercent(account: ProviderAccount | null): number | null {
+  const primary = account?.codexProfile?.rateLimits?.primary;
+  if (!primary) return null;
+  if (typeof primary.remainingPercent === "number") {
+    return Math.max(0, Math.min(100, Math.round(primary.remainingPercent)));
   }
-  const variant = reason === "ok" ? "secondary" : "outline";
-  const colorClass =
-    reason === "ok"
-      ? "text-emerald-700 dark:text-emerald-300"
-      : "text-amber-700 dark:text-amber-300";
-  return (
-    <Badge variant={variant} className={`text-[10px] uppercase tracking-wide ${colorClass}`}>
-      {ACCOUNT_STATUS_LABELS[reason]}
-    </Badge>
-  );
+  if (typeof primary.usedPercent === "number") {
+    return Math.max(0, Math.min(100, Math.round(100 - primary.usedPercent)));
+  }
+  return null;
+}
+
+function formatResetTimestamp(account: ProviderAccount | null): string | null {
+  const resetsAt = account?.codexProfile?.rateLimits?.primary?.resetsAt;
+  if (typeof resetsAt !== "number" || !Number.isFinite(resetsAt)) {
+    return null;
+  }
+  const date = new Date(resetsAt * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 export function AccountManagerPanel() {
@@ -71,16 +64,16 @@ export function AccountManagerPanel() {
       (thread) => thread.session?.status === "running" || thread.session?.status === "connecting",
     ),
   );
+
   const settingsRef = useRef(settings);
-  const [supportedProviders, setSupportedProviders] = useState<ProviderKind[]>(["codex"]);
+  const [supportedProviders, setSupportedProviders] = useState<ProviderKind[]>([CODEX_ONLY_PROVIDER]);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>(CODEX_ONLY_PROVIDER);
+  const [selectedAccountId, setSelectedAccountId] = useState<string>(DEFAULT_ACCOUNT_VALUE);
+  const [newAccountName, setNewAccountName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
-  const [addFormByProvider, setAddFormByProvider] =
-    useState<Record<ProviderKind, { name: string; apiKey: string }>>(ADD_FORM_DEFAULT);
-  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
-  const [renameDraftByAccountId, setRenameDraftByAccountId] = useState<Record<string, string>>({});
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -102,14 +95,10 @@ export function AccountManagerPanel() {
     const currentMultiAccount = settingsRef.current.multiAccount;
     const [supported, listed] = await Promise.all([
       api.accounts.supported(),
-      api.accounts.list({ accounts: currentMultiAccount.accounts }),
+      api.accounts.list({}),
     ]);
 
-    const providers = normalizeSupportedProviders([
-      ...supported.providers,
-      ...currentMultiAccount.accounts.map((account) => account.providerKind),
-    ]);
-    const nextAccounts = listed.accounts;
+    const nextAccounts = listed.accounts.filter((account) => account.providerKind === CODEX_ONLY_PROVIDER);
     const nextActive = cleanupActiveAccountByProvider(
       currentMultiAccount.activeAccountByProvider,
       nextAccounts,
@@ -119,9 +108,27 @@ export function AccountManagerPanel() {
       accounts: nextAccounts,
       activeAccountByProvider: nextActive,
     });
-    setSupportedProviders(providers.length > 0 ? providers : ["codex"]);
     setLoadError(null);
-  }, [commitMultiAccount]);
+
+    const codexOnlySupported = normalizeSupportedProviders(
+      supported.providers.filter((provider) => provider === CODEX_ONLY_PROVIDER),
+    );
+    setSupportedProviders(codexOnlySupported.length > 0 ? codexOnlySupported : [CODEX_ONLY_PROVIDER]);
+
+    const nextActiveId = nextActive[CODEX_ONLY_PROVIDER] ?? null;
+    const selectedStillExists = nextAccounts.some((account) => account.id === selectedAccountId);
+    if (selectedStillExists) {
+      return;
+    }
+
+    if (nextActiveId) {
+      setSelectedAccountId(nextActiveId);
+      return;
+    }
+
+    const firstId = nextAccounts[0]?.id;
+    setSelectedAccountId(firstId ?? DEFAULT_ACCOUNT_VALUE);
+  }, [commitMultiAccount, selectedAccountId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,204 +147,151 @@ export function AccountManagerPanel() {
     };
   }, [refreshAccounts]);
 
-  const providersToRender = useMemo(
-    () =>
-      normalizeSupportedProviders([
-        ...supportedProviders,
-        ...settings.multiAccount.accounts.map((account) => account.providerKind),
-      ]),
-    [settings.multiAccount.accounts, supportedProviders],
-  );
-
-  const accountsByProvider = useMemo(() => {
-    const grouped: Record<ProviderKind, ProviderAccount[]> = {
-      codex: [],
-      claudeCode: [],
-      cursor: [],
-    };
-    for (const account of settings.multiAccount.accounts) {
-      grouped[account.providerKind].push(account);
+  useEffect(() => {
+    if (!supportedProviders.includes(selectedProvider)) {
+      setSelectedProvider(CODEX_ONLY_PROVIDER);
     }
-    return grouped;
-  }, [settings.multiAccount.accounts]);
+  }, [selectedProvider, supportedProviders]);
 
-  const handleRetry = useCallback(() => {
-    setIsLoading(true);
+  const providerAccounts = useMemo(
+    () => settings.multiAccount.accounts.filter((account) => account.providerKind === selectedProvider),
+    [selectedProvider, settings.multiAccount.accounts],
+  );
+  const activeAccountId = settings.multiAccount.activeAccountByProvider[selectedProvider] ?? null;
+  const activeAccount = providerAccounts.find((account) => account.id === activeAccountId) ?? null;
+  const selectedAccount =
+    providerAccounts.find((account) => account.id === selectedAccountId) ?? activeAccount ?? null;
+
+  const handleAddAccount = useCallback(async () => {
+    const name = newAccountName.trim();
+    if (!name) {
+      setActionError("Enter an account name.");
+      return;
+    }
+
+    setPendingAction("add");
     setActionError(null);
-    void refreshAccounts()
-      .catch((error) => {
-        setLoadError(toActionErrorMessage(error, "Unable to refresh accounts."));
-      })
-      .finally(() => {
-        setIsLoading(false);
-      });
-  }, [refreshAccounts]);
 
-  const handleAddAccount = useCallback(
-    async (providerKind: ProviderKind) => {
-      const form = addFormByProvider[providerKind];
-      const name = form.name.trim();
-      const apiKey = form.apiKey.trim();
-      if (!name) {
-        setActionError("Enter an account name.");
-        return;
-      }
-      if (providerKind === "claudeCode" && !apiKey) {
-        setActionError("Claude Code accounts require an API key.");
-        return;
-      }
-
-      setPendingAction(`add:${providerKind}`);
-      setActionError(null);
-
-      try {
-        const api = ensureNativeApi();
-        const response = await api.accounts.add(
-          providerKind === "claudeCode"
-            ? { providerKind, name, apiKey }
-            : { providerKind, name },
-        );
-
-        const currentMultiAccount = settingsRef.current.multiAccount;
-        const nextAccounts = upsertAccountById(currentMultiAccount.accounts, response.account);
-        const nextActive = currentMultiAccount.activeAccountByProvider[providerKind]
-          ? currentMultiAccount.activeAccountByProvider
-          : setActiveForAccount(currentMultiAccount.activeAccountByProvider, response.account);
-
-        commitMultiAccount({
-          accounts: nextAccounts,
-          activeAccountByProvider: cleanupActiveAccountByProvider(nextActive, nextAccounts),
-        });
-
-        setAddFormByProvider((existing) => ({
-          ...existing,
-          [providerKind]: { name: "", apiKey: "" },
-        }));
-
-        await refreshAccounts();
-      } catch (error) {
-        setActionError(toActionErrorMessage(error, "Unable to add account."));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [addFormByProvider, commitMultiAccount, refreshAccounts],
-  );
-
-  const handleRemoveAccount = useCallback(
-    async (account: ProviderAccount) => {
+    try {
       const api = ensureNativeApi();
-      const confirmed = await api.dialogs.confirm(
-        `Remove account "${account.name}" from ${PROVIDER_LABELS[account.providerKind]}?`,
+      const response = await api.accounts.add({
+        providerKind: CODEX_ONLY_PROVIDER,
+        name,
+      });
+
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const nextAccounts = upsertAccountById(currentMultiAccount.accounts, response.account);
+      const nextActive = currentMultiAccount.activeAccountByProvider[CODEX_ONLY_PROVIDER]
+        ? currentMultiAccount.activeAccountByProvider
+        : setActiveForAccount(currentMultiAccount.activeAccountByProvider, response.account);
+
+      commitMultiAccount({
+        accounts: nextAccounts,
+        activeAccountByProvider: cleanupActiveAccountByProvider(nextActive, nextAccounts),
+      });
+
+      setNewAccountName("");
+      await refreshAccounts();
+    } catch (error) {
+      setActionError(toActionErrorMessage(error, "Unable to connect account."));
+    } finally {
+      setPendingAction(null);
+    }
+  }, [commitMultiAccount, newAccountName, refreshAccounts]);
+
+  const handleActiveAccountChange = useCallback(
+    (value: string) => {
+      if (hasActiveSession) {
+        setActionError("Account switching is blocked while a session is active.");
+        return;
+      }
+
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const nextActiveAccountByProvider =
+        value === DEFAULT_ACCOUNT_VALUE
+          ? clearActiveForProvider(currentMultiAccount.activeAccountByProvider, selectedProvider)
+          : (() => {
+              const account = providerAccounts.find((entry) => entry.id === value);
+              return account
+                ? setActiveForAccount(currentMultiAccount.activeAccountByProvider, account)
+                : currentMultiAccount.activeAccountByProvider;
+            })();
+
+      commitMultiAccount({
+        accounts: currentMultiAccount.accounts,
+        activeAccountByProvider: nextActiveAccountByProvider,
+      });
+
+      setActionError(null);
+      setSelectedAccountId(value);
+    },
+    [commitMultiAccount, hasActiveSession, providerAccounts, selectedProvider],
+  );
+
+  const handleCheckSelectedAccount = useCallback(async () => {
+    if (!selectedAccount) {
+      setActionError("Select an account to check.");
+      return;
+    }
+
+    setPendingAction(`check:${selectedAccount.id}`);
+    setActionError(null);
+
+    try {
+      const api = ensureNativeApi();
+      const result = await api.accounts.check({ accountId: selectedAccount.id });
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const nextAccounts = result.account
+        ? upsertAccountById(currentMultiAccount.accounts, result.account)
+        : setAccountCredentialStatus(currentMultiAccount.accounts, selectedAccount.id, result.reason);
+
+      commitMultiAccount({
+        accounts: nextAccounts,
+        activeAccountByProvider: cleanupActiveAccountByProvider(
+          currentMultiAccount.activeAccountByProvider,
+          nextAccounts,
+        ),
+      });
+      await refreshAccounts();
+    } catch (error) {
+      setActionError(toActionErrorMessage(error, "Unable to check account status."));
+    } finally {
+      setPendingAction(null);
+    }
+  }, [commitMultiAccount, refreshAccounts, selectedAccount]);
+
+  const handleRemoveSelectedAccount = useCallback(async () => {
+    if (!selectedAccount) {
+      setActionError("Select an account to remove.");
+      return;
+    }
+
+    const api = ensureNativeApi();
+    const confirmed = await api.dialogs.confirm(
+      `Remove account "${selectedAccount.name}" from Codex?`,
+    );
+    if (!confirmed) return;
+
+    setPendingAction(`remove:${selectedAccount.id}`);
+    setActionError(null);
+
+    try {
+      await api.accounts.remove({ accountId: selectedAccount.id });
+      const nextMultiAccount = removeAccountAndCleanupActive(
+        settingsRef.current.multiAccount,
+        selectedAccount.id,
       );
-      if (!confirmed) return;
+      commitMultiAccount(nextMultiAccount);
+      await refreshAccounts();
+    } catch (error) {
+      setActionError(toActionErrorMessage(error, "Unable to remove account."));
+    } finally {
+      setPendingAction(null);
+    }
+  }, [commitMultiAccount, refreshAccounts, selectedAccount]);
 
-      setPendingAction(`remove:${account.id}`);
-      setActionError(null);
-      try {
-        await api.accounts.remove({
-          accountId: account.id,
-          accounts: settingsRef.current.multiAccount.accounts,
-        });
-        const nextMultiAccount = removeAccountAndCleanupActive(
-          settingsRef.current.multiAccount,
-          account.id,
-        );
-        commitMultiAccount(nextMultiAccount);
-        setEditingAccountId((current) => (current === account.id ? null : current));
-      } catch (error) {
-        setActionError(toActionErrorMessage(error, "Unable to remove account."));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [commitMultiAccount],
-  );
-
-  const handleSetActive = useCallback(
-    (account: ProviderAccount) => {
-      if (hasActiveSession) {
-        setActionError("Account switching is blocked while a session is active.");
-        return;
-      }
-      setActionError(null);
-      const currentMultiAccount = settingsRef.current.multiAccount;
-      commitMultiAccount({
-        accounts: currentMultiAccount.accounts,
-        activeAccountByProvider: setActiveForAccount(
-          currentMultiAccount.activeAccountByProvider,
-          account,
-        ),
-      });
-    },
-    [commitMultiAccount, hasActiveSession],
-  );
-
-  const handleClearActive = useCallback(
-    (providerKind: ProviderKind) => {
-      if (hasActiveSession) {
-        setActionError("Account switching is blocked while a session is active.");
-        return;
-      }
-      setActionError(null);
-      const currentMultiAccount = settingsRef.current.multiAccount;
-      commitMultiAccount({
-        accounts: currentMultiAccount.accounts,
-        activeAccountByProvider: clearActiveForProvider(
-          currentMultiAccount.activeAccountByProvider,
-          providerKind,
-        ),
-      });
-    },
-    [commitMultiAccount, hasActiveSession],
-  );
-
-  const handleSaveRename = useCallback(
-    (account: ProviderAccount) => {
-      const draft = renameDraftByAccountId[account.id] ?? account.name;
-      const trimmedDraft = draft.trim();
-      if (!trimmedDraft) {
-        setActionError("Account name cannot be empty.");
-        return;
-      }
-      setActionError(null);
-      const currentMultiAccount = settingsRef.current.multiAccount;
-      commitMultiAccount({
-        accounts: renameAccountById(currentMultiAccount.accounts, account.id, trimmedDraft),
-        activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
-      });
-      setEditingAccountId(null);
-    },
-    [commitMultiAccount, renameDraftByAccountId],
-  );
-
-  const handleCheckAccount = useCallback(
-    async (account: ProviderAccount) => {
-      setPendingAction(`check:${account.id}`);
-      setActionError(null);
-      try {
-        const api = ensureNativeApi();
-        const result = await api.accounts.check({
-          accountId: account.id,
-          accounts: settingsRef.current.multiAccount.accounts,
-        });
-        const currentMultiAccount = settingsRef.current.multiAccount;
-        commitMultiAccount({
-          accounts: setAccountCredentialStatus(
-            currentMultiAccount.accounts,
-            account.id,
-            result.reason,
-          ),
-          activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
-        });
-      } catch (error) {
-        setActionError(toActionErrorMessage(error, "Unable to check account status."));
-      } finally {
-        setPendingAction(null);
-      }
-    },
-    [commitMultiAccount],
-  );
+  const primaryRemainingPercent = readPrimaryRemainingPercent(selectedAccount);
+  const primaryResetLabel = formatResetTimestamp(selectedAccount);
 
   return (
     <section id="accounts" className="rounded-2xl border border-border bg-card p-5">
@@ -345,220 +299,185 @@ export function AccountManagerPanel() {
         <div>
           <h2 className="text-sm font-medium text-foreground">Accounts</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Connect provider accounts, choose an active account per provider, and verify credential
-            health.
+            Select provider, connect a Codex account, then choose the active account for new sessions.
           </p>
         </div>
-        <Button size="xs" variant="outline" onClick={handleRetry} disabled={isLoading}>
+        <Button size="xs" variant="outline" onClick={() => void refreshAccounts()} disabled={isLoading}>
           {isLoading ? "Refreshing..." : "Refresh"}
         </Button>
       </div>
 
       {loadError ? (
-        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {loadError}
         </div>
       ) : null}
       {actionError ? (
-        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {actionError}
         </div>
       ) : null}
       {hasActiveSession ? (
-        <div className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           Account switching is locked while a session is running.
         </div>
       ) : null}
 
       <div className="space-y-4">
-        {providersToRender.map((providerKind) => {
-          const providerAccounts = accountsByProvider[providerKind];
-          const activeAccountId = settings.multiAccount.activeAccountByProvider[providerKind];
-          const addForm = addFormByProvider[providerKind];
-          const addPending = pendingAction === `add:${providerKind}`;
-          return (
-            <div key={providerKind} className="rounded-xl border border-border bg-background/50 p-4">
-              <div className="mb-3 flex items-center justify-between gap-2">
-                <h3 className="text-sm font-medium text-foreground">{PROVIDER_LABELS[providerKind]}</h3>
-                <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                  Supported
-                </Badge>
+        <label className="block space-y-1">
+          <span className="text-xs font-medium text-foreground">Provider</span>
+          <Select
+            items={supportedProviders.map((provider) => ({
+              label: provider === "codex" ? "Codex" : provider,
+              value: provider,
+            }))}
+            value={selectedProvider}
+            onValueChange={(value) => {
+              if (!value || value !== CODEX_ONLY_PROVIDER) return;
+              setSelectedProvider(CODEX_ONLY_PROVIDER);
+            }}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup alignItemWithTrigger={false}>
+              <SelectItem value={CODEX_ONLY_PROVIDER}>Codex</SelectItem>
+            </SelectPopup>
+          </Select>
+        </label>
+
+        <div className="rounded-lg border border-border bg-background px-3 py-3">
+          <p className="text-xs font-medium text-foreground">Connect Codex account</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Runs <code>codex login</code> and stores credentials in <code>~/.t3code/accounts</code>.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={newAccountName}
+              onChange={(event) => setNewAccountName(event.target.value)}
+              placeholder="Account name (for example: Work)"
+              aria-label="Codex account name"
+            />
+            <Button
+              onClick={() => void handleAddAccount()}
+              disabled={pendingAction === "add" || isLoading}
+            >
+              {pendingAction === "add" ? "Connecting..." : "Connect account"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-background px-3 py-3">
+          <p className="text-xs font-medium text-foreground">Active account</p>
+          <select
+            className="mt-2 w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-70"
+            value={activeAccountId ?? DEFAULT_ACCOUNT_VALUE}
+            onChange={(event) => handleActiveAccountChange(event.target.value)}
+            disabled={providerAccounts.length === 0 || hasActiveSession}
+            aria-label="Active Codex account"
+          >
+            <option value={DEFAULT_ACCOUNT_VALUE}>Default (system credentials)</option>
+            {providerAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+
+          {providerAccounts.length === 0 ? (
+            <p className="mt-2 text-[11px] text-muted-foreground">No Codex accounts connected yet.</p>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-border bg-background px-3 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium text-foreground">Selected account details</p>
+            {selectedAccount ? (
+              <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                {activeAccountId === selectedAccount.id ? "Active" : "Connected"}
+              </Badge>
+            ) : null}
+          </div>
+
+          {selectedAccount ? (
+            <>
+              <label className="sr-only" htmlFor="selected-account">Selected account</label>
+              <select
+                id="selected-account"
+                className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
+                value={selectedAccount.id}
+                onChange={(event) => setSelectedAccountId(event.target.value)}
+              >
+                {providerAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                <p>
+                  Alias: <span className="font-medium text-foreground">{selectedAccount.name}</span>
+                </p>
+                <p>
+                  Name:{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedAccount.codexProfile?.name ?? "Unknown"}
+                  </span>
+                </p>
+                <p>
+                  Email:{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedAccount.codexProfile?.email ?? "Unknown"}
+                  </span>
+                </p>
+                <p>
+                  Account type:{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedAccount.codexProfile?.type ?? "Unknown"}
+                  </span>
+                </p>
+                <p>
+                  Plan:{" "}
+                  <span className="font-medium text-foreground">
+                    {selectedAccount.codexProfile?.planType ?? "Unknown"}
+                  </span>
+                </p>
+                <p>
+                  Remaining limit:{" "}
+                  <span className="font-medium text-foreground">
+                    {primaryRemainingPercent !== null ? `${primaryRemainingPercent}%` : "Unknown"}
+                  </span>
+                </p>
+                <p>
+                  Resets:{" "}
+                  <span className="font-medium text-foreground">{primaryResetLabel ?? "Unknown"}</span>
+                </p>
               </div>
 
-              <div className="mb-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <Input
-                  value={addForm.name}
-                  onChange={(event) =>
-                    setAddFormByProvider((existing) => ({
-                      ...existing,
-                      [providerKind]: {
-                        ...existing[providerKind],
-                        name: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder="Account name"
-                  aria-label={`${PROVIDER_LABELS[providerKind]} account name`}
-                />
-                <Input
-                  value={addForm.apiKey}
-                  onChange={(event) =>
-                    setAddFormByProvider((existing) => ({
-                      ...existing,
-                      [providerKind]: {
-                        ...existing[providerKind],
-                        apiKey: event.target.value,
-                      },
-                    }))
-                  }
-                  placeholder={
-                    providerKind === "claudeCode" ? "API key (required)" : "API key (optional)"
-                  }
-                  aria-label={`${PROVIDER_LABELS[providerKind]} API key`}
-                  type="password"
-                  disabled={providerKind !== "claudeCode"}
-                />
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Button
-                  size="sm"
-                  onClick={() => {
-                    void handleAddAccount(providerKind);
-                  }}
-                  disabled={addPending || isLoading}
+                  size="xs"
+                  variant="outline"
+                  onClick={() => void handleCheckSelectedAccount()}
+                  disabled={pendingAction === `check:${selectedAccount.id}`}
                 >
-                  {addPending ? "Adding..." : "Add account"}
+                  {pendingAction === `check:${selectedAccount.id}` ? "Checking..." : "Check status"}
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => void handleRemoveSelectedAccount()}
+                  disabled={pendingAction === `remove:${selectedAccount.id}`}
+                >
+                  {pendingAction === `remove:${selectedAccount.id}` ? "Removing..." : "Remove"}
                 </Button>
               </div>
-
-              {providerAccounts.length === 0 ? (
-                <p className="rounded-lg border border-dashed border-border bg-background px-3 py-3 text-xs text-muted-foreground">
-                  No accounts added for this provider.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex justify-end">
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => handleClearActive(providerKind)}
-                      disabled={!activeAccountId || hasActiveSession}
-                    >
-                      Use default credentials
-                    </Button>
-                  </div>
-                  {providerAccounts.map((account) => {
-                    const isEditing = editingAccountId === account.id;
-                    const isRemoving = pendingAction === `remove:${account.id}`;
-                    const isChecking = pendingAction === `check:${account.id}`;
-                    const renameDraft = renameDraftByAccountId[account.id] ?? account.name;
-                    const isActive = activeAccountId === account.id;
-                    return (
-                      <div
-                        key={account.id}
-                        className="rounded-lg border border-border bg-background px-3 py-3"
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          {isEditing ? (
-                            <Input
-                              value={renameDraft}
-                              onChange={(event) =>
-                                setRenameDraftByAccountId((existing) => ({
-                                  ...existing,
-                                  [account.id]: event.target.value,
-                                }))
-                              }
-                              className="h-8 max-w-sm"
-                              aria-label={`Rename ${account.name}`}
-                            />
-                          ) : (
-                            <p className="text-sm font-medium text-foreground">{account.name}</p>
-                          )}
-
-                          {isActive ? (
-                            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
-                              Active
-                            </Badge>
-                          ) : null}
-                          <AccountStatusBadge reason={account.credentialStatus} />
-                        </div>
-
-                        <p className="mt-1 break-all text-[11px] text-muted-foreground">
-                          {account.profilePath}
-                        </p>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {isEditing ? (
-                            <>
-                              <Button size="xs" onClick={() => handleSaveRename(account)}>
-                                Save
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditingAccountId(null);
-                                  setRenameDraftByAccountId((existing) => ({
-                                    ...existing,
-                                    [account.id]: account.name,
-                                  }));
-                                }}
-                              >
-                                Cancel
-                              </Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() => handleSetActive(account)}
-                                disabled={isActive || hasActiveSession}
-                              >
-                                {isActive ? "Active account" : "Set active"}
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditingAccountId(account.id);
-                                  setRenameDraftByAccountId((existing) => ({
-                                    ...existing,
-                                    [account.id]: account.name,
-                                  }));
-                                }}
-                              >
-                                Rename
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={() => {
-                                  void handleCheckAccount(account);
-                                }}
-                                disabled={isChecking}
-                              >
-                                {isChecking ? "Checking..." : "Check"}
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="ghost"
-                                onClick={() => {
-                                  void handleRemoveAccount(account);
-                                }}
-                                disabled={isRemoving}
-                              >
-                                {isRemoving ? "Removing..." : "Remove"}
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            </>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">Select or connect an account to view details.</p>
+          )}
+        </div>
       </div>
     </section>
   );

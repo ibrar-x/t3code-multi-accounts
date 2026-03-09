@@ -80,10 +80,36 @@ describe("account payload schemas", () => {
       accountId: "acc_codex_1",
       valid: true,
       reason: "ok",
+      account: {
+        id: "acc_codex_1",
+        providerKind: "codex",
+        name: "Work",
+        profilePath: "/Users/me/.t3code/accounts/acc_codex_1",
+        isDefault: false,
+        credentialStatus: "ok",
+        codexProfile: {
+          type: "chatgpt",
+          email: "work@example.com",
+          planType: "plus",
+          rateLimits: {
+            limitId: "codex",
+            primary: {
+              usedPercent: 42,
+              remainingPercent: 58,
+              windowDurationMins: 300,
+            },
+          },
+          syncedAt: "2026-01-01T00:00:00.000Z",
+        },
+        createdAt: "2026-01-01T00:00:00.000Z",
+        lastUsedAt: null,
+      },
     });
 
     expect(parsed.valid).toBe(true);
     expect(parsed.reason).toBe("ok");
+    expect(parsed.account?.codexProfile?.email).toBe("work@example.com");
+    expect(parsed.account?.codexProfile?.rateLimits?.primary?.remainingPercent).toBe(58);
   });
 
   it("decodes supported-providers response", () => {

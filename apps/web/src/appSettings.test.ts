@@ -181,4 +181,27 @@ describe("decodePersistedAppSettings", () => {
     expect(parsed.multiAccount.accounts).toHaveLength(1);
     expect(parsed.multiAccount.activeAccountByProvider.codex).toBe("acc_codex_1");
   });
+
+  it("preserves legacy settings when multiAccount is malformed", () => {
+    const parsed = decodePersistedAppSettings(
+      JSON.stringify(
+        makeLegacyPersistedSettings({
+          codexBinaryPath: "/opt/codex-malformed",
+          codexHomePath: "/tmp/codex-home-malformed",
+          codexServiceTier: "flex",
+          customCodexModels: ["custom/kept-model"],
+          multiAccount: "bad-value",
+        }),
+      ),
+    );
+
+    expect(parsed.codexBinaryPath).toBe("/opt/codex-malformed");
+    expect(parsed.codexHomePath).toBe("/tmp/codex-home-malformed");
+    expect(parsed.codexServiceTier).toBe("flex");
+    expect(parsed.customCodexModels).toEqual(["custom/kept-model"]);
+    expect(parsed.multiAccount).toEqual({
+      accounts: [],
+      activeAccountByProvider: {},
+    });
+  });
 });

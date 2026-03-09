@@ -114,6 +114,7 @@ import {
   summarizeTurnDiffStats,
   type TurnDiffTreeNode,
 } from "../lib/turnDiffTree";
+import { AccountSwitcher } from "./AccountSwitcher";
 import BranchToolbar from "./BranchToolbar";
 import GitActionsControl from "./GitActionsControl";
 import {
@@ -1324,6 +1325,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (activeThread.messages.length > 0 ||
       (activeThread.session !== null && activeThread.session.status !== "closed")),
   );
+  const isAccountSwitcherLocked =
+    activeThread?.session?.status === "running" || activeThread?.session?.status === "connecting";
   const hasReachedTerminalLimit = terminalState.terminalIds.length >= MAX_THREAD_TERMINAL_COUNT;
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
@@ -3623,7 +3626,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 pb-2.5 sm:flex-nowrap sm:gap-0 sm:px-3 sm:pb-3">
                 <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible">
-                  {/* Provider/model picker */}
                   <ProviderModelPicker
                     provider={selectedProvider}
                     model={selectedModelForPickerWithCustomFallback}
@@ -3646,7 +3648,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     </>
                   ) : null}
 
-                  {/* Divider */}
                   <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
 
                   {/* Interaction mode toggle */}
@@ -3865,6 +3866,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onEnvModeChange={onEnvModeChange}
           envLocked={envLocked}
           onComposerFocusRequest={scheduleComposerFocus}
+          accountControl={
+            <AccountSwitcher
+              provider="codex"
+              disabled={isAccountSwitcherLocked}
+              variant="inline"
+            />
+          }
         />
       )}
 

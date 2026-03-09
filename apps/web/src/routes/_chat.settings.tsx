@@ -245,72 +245,77 @@ function SettingsRouteView() {
               </p>
             </section>
 
+            <AccountManagerPanel />
+
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Codex App Server</h2>
+                <h2 className="text-sm font-medium text-foreground">Codex advanced</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  These overrides apply to new sessions and let you use a non-default Codex install.
+                  Optional overrides for non-default Codex binary/home paths.
                 </p>
               </div>
 
-              <div className="space-y-4">
-                <label htmlFor="codex-binary-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">Codex binary path</span>
-                  <Input
-                    id="codex-binary-path"
-                    value={codexBinaryPath}
-                    onChange={(event) => updateSettings({ codexBinaryPath: event.target.value })}
-                    placeholder="codex"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Leave blank to use <code>codex</code> from your PATH.
-                  </span>
-                </label>
+              <details className="rounded-xl border border-border bg-background/60 p-3">
+                <summary className="cursor-pointer list-none text-xs font-medium text-foreground">
+                  Show app-server override paths
+                </summary>
+                <div className="mt-3 space-y-4">
+                  <label htmlFor="codex-binary-path" className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">Codex binary path</span>
+                    <Input
+                      id="codex-binary-path"
+                      value={codexBinaryPath}
+                      onChange={(event) => updateSettings({ codexBinaryPath: event.target.value })}
+                      placeholder="codex"
+                      spellCheck={false}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Leave blank to use <code>codex</code> from your PATH.
+                    </span>
+                  </label>
 
-                <label htmlFor="codex-home-path" className="block space-y-1">
-                  <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
-                  <Input
-                    id="codex-home-path"
-                    value={codexHomePath}
-                    onChange={(event) => updateSettings({ codexHomePath: event.target.value })}
-                    placeholder="/Users/you/.codex"
-                    spellCheck={false}
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    Optional custom Codex home/config directory.
-                  </span>
-                </label>
+                  <label htmlFor="codex-home-path" className="block space-y-1">
+                    <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
+                    <Input
+                      id="codex-home-path"
+                      value={codexHomePath}
+                      onChange={(event) => updateSettings({ codexHomePath: event.target.value })}
+                      placeholder="/Users/you/.codex"
+                      spellCheck={false}
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Optional custom Codex home/config directory.
+                    </span>
+                  </label>
 
-                <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                  <p>
-                    Binary source:{" "}
-                    <span className="font-medium text-foreground">{codexBinaryPath || "PATH"}</span>
-                  </p>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateSettings({
-                        codexBinaryPath: defaults.codexBinaryPath,
-                        codexHomePath: defaults.codexHomePath,
-                      })
-                    }
-                  >
-                    Reset codex overrides
-                  </Button>
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <p>
+                      Binary source:{" "}
+                      <span className="font-medium text-foreground">{codexBinaryPath || "PATH"}</span>
+                    </p>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() =>
+                        updateSettings({
+                          codexBinaryPath: defaults.codexBinaryPath,
+                          codexHomePath: defaults.codexHomePath,
+                        })
+                      }
+                    >
+                      Reset codex overrides
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              </details>
             </section>
-
-            <AccountManagerPanel />
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Models</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Save additional provider model slugs so they appear in the chat model picker and
-                  `/model` command suggestions.
+                  Save additional Codex model slugs so they appear in the chat model picker and
+                  `/model` suggestions.
                 </p>
               </div>
 

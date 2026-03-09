@@ -1,5 +1,5 @@
 import type { ThreadId } from "@t3tools/contracts";
-import { useCallback } from "react";
+import { useCallback, type ReactNode } from "react";
 
 import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -18,6 +18,7 @@ interface BranchToolbarProps {
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
   onComposerFocusRequest?: () => void;
+  accountControl?: ReactNode;
 }
 
 export default function BranchToolbar({
@@ -25,6 +26,7 @@ export default function BranchToolbar({
   onEnvModeChange,
   envLocked,
   onComposerFocusRequest,
+  accountControl,
 }: BranchToolbarProps) {
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
@@ -102,7 +104,7 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         {envLocked || activeWorktreePath ? (
           <span className="border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
             {activeWorktreePath ? "Worktree" : "Local"}
@@ -118,6 +120,12 @@ export default function BranchToolbar({
             {effectiveEnvMode === "worktree" ? "New worktree" : "Local"}
           </Button>
         )}
+        {accountControl ? (
+          <>
+            <span className="text-muted-foreground/30 hidden text-xs sm:inline">|</span>
+            <div className="min-w-0">{accountControl}</div>
+          </>
+        ) : null}
       </div>
 
       <BranchToolbarBranchSelector

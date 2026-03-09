@@ -8,6 +8,7 @@ import type {
 } from "@t3tools/contracts";
 import type { CredentialIsolationStrategy, CredentialLoginOptions } from "./credentialStrategy.ts";
 import { ACCOUNTS_DIR, type AccountStore, createAccountStore } from "./accountStore.ts";
+import { readCodexAccountProfile } from "./codexProfileProbe.ts";
 import { getStrategy, hasStrategy } from "./strategies/registry.ts";
 
 const PROVIDER_FILE = "provider.json";
@@ -36,6 +37,7 @@ export interface AccountManagerOptions {
   readonly store?: AccountStore;
   readonly getStrategy?: (providerKind: ProviderKind) => CredentialIsolationStrategy;
   readonly hasStrategy?: (providerKind: ProviderKind) => boolean;
+  readonly readCodexProfile?: (profilePath: string) => Promise<ProviderAccount["codexProfile"] | undefined>;
   readonly generateId?: () => string;
   readonly now?: () => Date;
 }
@@ -96,6 +98,7 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
   const store = options.store ?? createAccountStore({ storePath: path.join(accountsDir, "accounts.json") });
   const resolveStrategy = options.getStrategy ?? getStrategy;
   const supportsProvider = options.hasStrategy ?? hasStrategy;
+  const readCodexProfile = options.readCodexProfile ?? readCodexAccountProfile;
   const generateId = options.generateId ?? createDefaultAccountId;
   const now = options.now ?? (() => new Date());
 
@@ -160,6 +163,9 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
         name: accountName,
         profilePath,
         isDefault: false,
+        ...(providerKind === "codex"
+          ? { codexProfile: await readCodexProfile(profilePath).catch(() => undefined) }
+          : {}),
         createdAt: now().toISOString(),
         lastUsedAt: null,
       };
@@ -251,10 +257,27 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
         };
       }
       const status = await strategy.checkCredentials(safeProfilePath);
+      const nextAccount: ProviderAccount = {
+        ...resolvedAccount,
+        credentialStatus: status.valid ? "ok" : status.reason,
+        ...(resolvedAccount.providerKind === "codex" && status.valid
+          ? {
+              codexProfile:
+                (await readCodexProfile(safeProfilePath).catch(() => undefined)) ??
+                resolvedAccount.codexProfile,
+            }
+          : {}),
+      };
+
+      if (JSON.stringify(nextAccount) !== JSON.stringify(resolvedAccount)) {
+        await store.updateAccount(nextAccount).catch(() => undefined);
+      }
+
       return {
         accountId: resolvedAccount.id,
         valid: status.valid,
         reason: status.valid ? "ok" : status.reason,
+        account: nextAccount,
       };
     },
     async checkAllAccounts(accounts) {

@@ -197,6 +197,7 @@ describe("wsServer account method routing", () => {
 
   it("routes accounts.list and includes credential status per account", async () => {
     const account = makeAccount("acc_1");
+    vi.spyOn(accountManager, "listAccounts").mockResolvedValue([account]);
     vi.spyOn(accountManager, "checkAllAccounts").mockResolvedValue([
       { accountId: account.id, valid: true, reason: "ok" },
     ] satisfies AccountCheckResponse[]);
@@ -210,7 +211,7 @@ describe("wsServer account method routing", () => {
     sockets.push(ws);
     await waitForMessage(ws); // welcome push
 
-    const response = await sendRequest(ws, WS_METHODS.accountsList, { accounts: [account] });
+    const response = await sendRequest(ws, WS_METHODS.accountsList);
     expect(response.error).toBeUndefined();
     expect(response.result).toEqual({
       accounts: [
@@ -250,6 +251,9 @@ describe("wsServer account method routing", () => {
 
   it("routes accounts.remove and returns errors for unknown account ids", async () => {
     const account = makeAccount("acc_remove");
+    vi.spyOn(accountManager, "getAccountById").mockImplementation(async (accountId) =>
+      accountId === account.id ? account : undefined,
+    );
     const removeSpy = vi.spyOn(accountManager, "removeAccount").mockResolvedValue(undefined);
 
     server = await createTestServer();
@@ -259,23 +263,20 @@ describe("wsServer account method routing", () => {
     sockets.push(ws);
     await waitForMessage(ws); // welcome push
 
-    const success = await sendRequest(ws, WS_METHODS.accountsRemove, {
-      accountId: account.id,
-      accounts: [account],
-    });
+    const success = await sendRequest(ws, WS_METHODS.accountsRemove, { accountId: account.id });
     expect(success.error).toBeUndefined();
     expect(success.result).toEqual({ success: true });
     expect(removeSpy).toHaveBeenCalledWith(expect.objectContaining({ id: account.id }));
 
-    const missing = await sendRequest(ws, WS_METHODS.accountsRemove, {
-      accountId: "acc_missing",
-      accounts: [account],
-    });
+    const missing = await sendRequest(ws, WS_METHODS.accountsRemove, { accountId: "acc_missing" });
     expect(missing.error?.message).toContain('Account "acc_missing" not found');
   });
 
   it("routes accounts.check missing and existing account flows", async () => {
     const account = makeAccount("acc_check");
+    vi.spyOn(accountManager, "getAccountById").mockImplementation(async (accountId) =>
+      accountId === account.id ? account : undefined,
+    );
     vi.spyOn(accountManager, "checkAccount").mockResolvedValue({
       accountId: account.id,
       valid: true,
@@ -289,10 +290,7 @@ describe("wsServer account method routing", () => {
     sockets.push(ws);
     await waitForMessage(ws); // welcome push
 
-    const existing = await sendRequest(ws, WS_METHODS.accountsCheck, {
-      accountId: account.id,
-      accounts: [account],
-    });
+    const existing = await sendRequest(ws, WS_METHODS.accountsCheck, { accountId: account.id });
     expect(existing.error).toBeUndefined();
     expect(existing.result).toEqual({
       accountId: account.id,
@@ -300,10 +298,7 @@ describe("wsServer account method routing", () => {
       reason: "ok",
     });
 
-    const missing = await sendRequest(ws, WS_METHODS.accountsCheck, {
-      accountId: "acc_missing",
-      accounts: [account],
-    });
+    const missing = await sendRequest(ws, WS_METHODS.accountsCheck, { accountId: "acc_missing" });
     expect(missing.error).toBeUndefined();
     expect(missing.result).toEqual({
       accountId: "acc_missing",
