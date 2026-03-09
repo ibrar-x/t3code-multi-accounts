@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CodexCredentialStrategy } from "./codexStrategy.ts";
 
 const tempDirs: Array<string> = [];
@@ -33,16 +33,23 @@ describe("CodexCredentialStrategy", () => {
     expect(stat.isDirectory()).toBe(true);
   });
 
-  it("runs codex login and injects CODEX_HOME into the child env", async () => {
+  it("runs codex login --device-auth, opens browser url, and injects CODEX_HOME", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
     const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+    const openUrl = vi.fn(async () => undefined);
 
     const strategy = new CodexCredentialStrategy({
       spawnImpl: (command, args, options) => {
         spawnCalls.push({ command, args, options });
-        const child = new EventEmitter();
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
+          (child.stdout as EventEmitter).emit(
+            "data",
+            "Open this URL to authenticate: https://auth.openai.com/device?code=abc123\n",
+          );
           void fs
             .writeFile(
               authPath,
@@ -56,8 +63,9 @@ describe("CodexCredentialStrategy", () => {
               child.emit("error", error);
             });
         });
-        return child as unknown as ChildProcess;
+        return child;
       },
+      openUrl,
       warningLogger: () => undefined,
     });
 
@@ -65,9 +73,10 @@ describe("CodexCredentialStrategy", () => {
 
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]?.command).toBe("codex");
-    expect(spawnCalls[0]?.args).toEqual(["login"]);
-    expect(spawnCalls[0]?.options.stdio).toBe("inherit");
+    expect(spawnCalls[0]?.args).toEqual(["login", "--device-auth"]);
+    expect(spawnCalls[0]?.options.stdio).toEqual(["ignore", "pipe", "pipe"]);
     expect(spawnCalls[0]?.options.env?.CODEX_HOME).toBe(profilePath);
+    expect(openUrl).toHaveBeenCalledWith("https://auth.openai.com/device?code=abc123");
 
     const mode = (await fs.stat(authPath)).mode & 0o777;
     expect(mode).toBe(0o600);
@@ -77,13 +86,15 @@ describe("CodexCredentialStrategy", () => {
     const profilePath = await makeTempDir();
     const strategy = new CodexCredentialStrategy({
       spawnImpl: () => {
-        const child = new EventEmitter();
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
           const error = new Error("spawn codex ENOENT") as NodeJS.ErrnoException;
           error.code = "ENOENT";
           child.emit("error", error);
         });
-        return child as unknown as ChildProcess;
+        return child;
       },
       warningLogger: () => undefined,
     });
@@ -97,11 +108,14 @@ describe("CodexCredentialStrategy", () => {
     const profilePath = await makeTempDir();
     const strategy = new CodexCredentialStrategy({
       spawnImpl: () => {
-        const child = new EventEmitter();
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
+          (child.stderr as EventEmitter).emit("data", "Authentication failed");
           child.emit("close", 2);
         });
-        return child as unknown as ChildProcess;
+        return child;
       },
       warningLogger: () => undefined,
     });

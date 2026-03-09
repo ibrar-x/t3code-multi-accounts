@@ -17,6 +17,7 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
+  showBranchSelector?: boolean;
   onComposerFocusRequest?: () => void;
   accountControl?: ReactNode;
 }
@@ -25,6 +26,7 @@ export default function BranchToolbar({
   threadId,
   onEnvModeChange,
   envLocked,
+  showBranchSelector = true,
   onComposerFocusRequest,
   accountControl,
 }: BranchToolbarProps) {
@@ -103,7 +105,11 @@ export default function BranchToolbar({
   if (!activeThreadId || !activeProject) return null;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
+    <div
+      className={`mx-auto flex w-full max-w-3xl items-center px-5 pb-3 pt-1 ${
+        showBranchSelector ? "justify-between" : "justify-start"
+      }`}
+    >
       <div className="flex min-w-0 items-center gap-2">
         {envLocked || activeWorktreePath ? (
           <span className="border border-transparent px-[calc(--spacing(2)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
@@ -128,16 +134,18 @@ export default function BranchToolbar({
         ) : null}
       </div>
 
-      <BranchToolbarBranchSelector
-        activeProjectCwd={activeProject.cwd}
-        activeThreadBranch={activeThreadBranch}
-        activeWorktreePath={activeWorktreePath}
-        branchCwd={branchCwd}
-        effectiveEnvMode={effectiveEnvMode}
-        envLocked={envLocked}
-        onSetThreadBranch={setThreadBranch}
-        {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
-      />
+      {showBranchSelector ? (
+        <BranchToolbarBranchSelector
+          activeProjectCwd={activeProject.cwd}
+          activeThreadBranch={activeThreadBranch}
+          activeWorktreePath={activeWorktreePath}
+          branchCwd={branchCwd}
+          effectiveEnvMode={effectiveEnvMode}
+          envLocked={envLocked}
+          onSetThreadBranch={setThreadBranch}
+          {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
+        />
+      ) : null}
     </div>
   );
 }

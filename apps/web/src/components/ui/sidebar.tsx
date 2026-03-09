@@ -83,6 +83,16 @@ function useSidebar() {
   return context;
 }
 
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return target.closest("input, textarea, select, [contenteditable='true']") !== null;
+}
+
 function SidebarProvider({
   defaultOpen = true,
   open: openProp,
@@ -144,6 +154,38 @@ function SidebarProvider({
     }),
     [state, open, setOpen, isMobile, openMobile, toggleSidebar],
   );
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.shiftKey) {
+        return;
+      }
+      if (isEditableEventTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key !== "b") {
+        return;
+      }
+
+      const isMac = navigator.platform.toLowerCase().includes("mac");
+      const isToggleShortcut = isMac
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey && !event.metaKey;
+      if (!isToggleShortcut) {
+        return;
+      }
+
+      event.preventDefault();
+      toggleSidebar();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [toggleSidebar]);
 
   return (
     <SidebarContext.Provider value={contextValue}>

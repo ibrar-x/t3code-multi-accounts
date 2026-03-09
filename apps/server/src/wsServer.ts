@@ -903,23 +903,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
               message: `Failed to load account store: ${String(cause)}`,
             }),
         });
-        const checks = yield* Effect.tryPromise({
-          try: () => accountManager.checkAllAccounts(accounts),
-          catch: (cause) =>
-            new RouteRequestError({
-              message: `Failed to list accounts: ${String(cause)}`,
-            }),
-        });
-        const checkByAccountId = new Map(checks.map((result) => [result.accountId, result]));
-        return {
-          accounts: accounts.map((account) => {
-            const checkedAccount = checkByAccountId.get(account.id)?.account ?? account;
-            return Object.assign({}, checkedAccount, {
-              credentialStatus:
-                checkByAccountId.get(account.id)?.reason ?? account.credentialStatus,
-            });
-          }),
-        };
+        return { accounts };
       }
 
       case WS_METHODS.accountsAdd: {
@@ -944,13 +928,17 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.accountsRemove: {
         const body = stripRequestTag(request.body);
-        const account = yield* Effect.tryPromise({
+        const persistedAccount = yield* Effect.tryPromise({
           try: () => accountManager.getAccountById(body.accountId),
           catch: (cause) =>
             new RouteRequestError({
               message: `Failed to read account "${body.accountId}": ${String(cause)}`,
             }),
         });
+        const account =
+          persistedAccount ??
+          body.accounts?.find((candidate) => candidate.id === body.accountId) ??
+          undefined;
         if (!account) {
           return yield* new RouteRequestError({
             message: `Account "${body.accountId}" not found.`,
