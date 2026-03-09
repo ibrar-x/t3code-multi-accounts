@@ -534,6 +534,14 @@ export default function Sidebar() {
   const handlePickFolder = async () => {
     const api = readNativeApi();
     if (!api || isPickingFolder) return;
+    if (!canPickFolder) {
+      toastManager.add({
+        type: "warning",
+        title: "Folder picker is desktop-only in browser mode",
+        description: "Enter the project path manually, or use the desktop app for native folder browsing.",
+      });
+      return;
+    }
     setIsPickingFolder(true);
     let pickedPath: string | null = null;
     try {
@@ -1315,16 +1323,19 @@ export default function Sidebar() {
                 if (event.key === "Escape") setAddingProject(false);
               }}
             />
-            {canPickFolder && (
-              <button
-                type="button"
-                className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => void handlePickFolder()}
-                disabled={isPickingFolder || isAddingProject}
-              >
-                {isPickingFolder ? "Picking folder..." : "Browse for folder"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void handlePickFolder()}
+              disabled={isPickingFolder || isAddingProject}
+              title={
+                canPickFolder
+                  ? "Browse for folder"
+                  : "Desktop-only in browser mode. Enter the path manually."
+              }
+            >
+              {isPickingFolder ? "Picking folder..." : "Browse for folder"}
+            </button>
             <div className="flex gap-2">
               <button
                 type="button"

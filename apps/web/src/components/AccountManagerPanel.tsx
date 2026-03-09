@@ -72,6 +72,7 @@ export function AccountManagerPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [defaultProviderAccount, setDefaultProviderAccount] = useState<ProviderAccount | null>(null);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -96,8 +97,12 @@ export function AccountManagerPanel() {
     const api = ensureNativeApi();
     const currentMultiAccount = settingsRef.current.multiAccount;
     const listed = await api.accounts.list({});
-
-    const nextAccounts = listed.accounts.filter((account) => account.providerKind === CODEX_ONLY_PROVIDER);
+    const nextProviderAccounts = listed.accounts.filter(
+      (account) => account.providerKind === CODEX_ONLY_PROVIDER,
+    );
+    const nextDefaultAccount = nextProviderAccounts.find((account) => account.isDefault) ?? null;
+    setDefaultProviderAccount(nextDefaultAccount);
+    const nextAccounts = nextProviderAccounts.filter((account) => !account.isDefault);
     const nextActive = cleanupActiveAccountByProvider(
       currentMultiAccount.activeAccountByProvider,
       nextAccounts,
@@ -143,14 +148,22 @@ export function AccountManagerPanel() {
 
   const providerAccounts = useMemo(
     () =>
-      settings.multiAccount.accounts.filter((account) => account.providerKind === CODEX_ONLY_PROVIDER),
+      settings.multiAccount.accounts.filter(
+        (account) => account.providerKind === CODEX_ONLY_PROVIDER && !account.isDefault,
+      ),
     [settings.multiAccount.accounts],
   );
   const activeAccountId =
     settings.multiAccount.activeAccountByProvider[CODEX_ONLY_PROVIDER] ?? null;
   const activeAccount = providerAccounts.find((account) => account.id === activeAccountId) ?? null;
   const selectedAccount =
-    providerAccounts.find((account) => account.id === selectedAccountId) ?? activeAccount ?? null;
+    selectedAccountId === DEFAULT_ACCOUNT_VALUE
+      ? defaultProviderAccount ?? activeAccount ?? null
+      : providerAccounts.find((account) => account.id === selectedAccountId) ??
+        activeAccount ??
+        defaultProviderAccount ??
+        null;
+  const selectedAccountIsDefault = selectedAccount?.isDefault ?? false;
 
   const handleAddAccount = useCallback(async () => {
     const name = newAccountName.trim();
@@ -222,7 +235,7 @@ export function AccountManagerPanel() {
   );
 
   const handleCheckSelectedAccount = useCallback(async () => {
-    if (!selectedAccount) {
+    if (!selectedAccount || selectedAccountIsDefault) {
       setActionError("Select an account to check.");
       return;
     }
@@ -251,10 +264,10 @@ export function AccountManagerPanel() {
     } finally {
       setPendingAction(null);
     }
-  }, [commitMultiAccount, refreshAccounts, selectedAccount]);
+  }, [commitMultiAccount, refreshAccounts, selectedAccount, selectedAccountIsDefault]);
 
   const handleRemoveSelectedAccount = useCallback(async () => {
-    if (!selectedAccount) {
+    if (!selectedAccount || selectedAccountIsDefault) {
       setActionError("Select an account to remove.");
       return;
     }
@@ -281,7 +294,7 @@ export function AccountManagerPanel() {
     } finally {
       setPendingAction(null);
     }
-  }, [commitMultiAccount, refreshAccounts, selectedAccount]);
+  }, [commitMultiAccount, refreshAccounts, selectedAccount, selectedAccountIsDefault]);
 
   const primaryRemainingPercent = readPrimaryRemainingPercent(selectedAccount);
   const primaryResetLabel = formatResetTimestamp(selectedAccount);
@@ -376,7 +389,11 @@ export function AccountManagerPanel() {
           </select>
 
           {providerAccounts.length === 0 ? (
-            <p className="mt-2 text-[11px] text-muted-foreground">No Codex accounts connected yet.</p>
+            <p className="mt-2 text-[11px] text-muted-foreground">
+              {defaultProviderAccount
+                ? "No additional Codex accounts connected yet. Using system credentials by default."
+                : "No Codex accounts connected yet."}
+            </p>
           ) : null}
         </div>
 
@@ -385,7 +402,11 @@ export function AccountManagerPanel() {
             <p className="text-xs font-medium text-foreground">Selected account details</p>
             {selectedAccount ? (
               <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
-                {activeAccountId === selectedAccount.id ? "Active" : "Connected"}
+                {selectedAccount.isDefault
+                  ? "System"
+                  : activeAccountId === selectedAccount.id
+                    ? "Active"
+                    : "Connected"}
               </Badge>
             ) : null}
           </div>
@@ -396,9 +417,12 @@ export function AccountManagerPanel() {
               <select
                 id="selected-account"
                 className="w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground"
-                value={selectedAccount.id}
+                value={selectedAccount.isDefault ? DEFAULT_ACCOUNT_VALUE : selectedAccount.id}
                 onChange={(event) => setSelectedAccountId(event.target.value)}
               >
+                {defaultProviderAccount ? (
+                  <option value={DEFAULT_ACCOUNT_VALUE}>Default (system credentials)</option>
+                ) : null}
                 {providerAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.name}
@@ -446,24 +470,31 @@ export function AccountManagerPanel() {
                 </p>
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={() => void handleCheckSelectedAccount()}
-                  disabled={pendingAction === `check:${selectedAccount.id}`}
-                >
-                  {pendingAction === `check:${selectedAccount.id}` ? "Checking..." : "Check status"}
-                </Button>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => void handleRemoveSelectedAccount()}
-                  disabled={pendingAction === `remove:${selectedAccount.id}`}
-                >
-                  {pendingAction === `remove:${selectedAccount.id}` ? "Removing..." : "Remove"}
-                </Button>
-              </div>
+              {selectedAccountIsDefault ? (
+                <p className="mt-3 text-[11px] text-muted-foreground">
+                  This is your default system Codex account. Manage it with{" "}
+                  <code>codex login</code>.
+                </p>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    onClick={() => void handleCheckSelectedAccount()}
+                    disabled={pendingAction === `check:${selectedAccount.id}`}
+                  >
+                    {pendingAction === `check:${selectedAccount.id}` ? "Checking..." : "Check status"}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => void handleRemoveSelectedAccount()}
+                    disabled={pendingAction === `remove:${selectedAccount.id}`}
+                  >
+                    {pendingAction === `remove:${selectedAccount.id}` ? "Removing..." : "Remove"}
+                  </Button>
+                </div>
+              )}
             </>
           ) : (
             <p className="text-[11px] text-muted-foreground">Select or connect an account to view details.</p>

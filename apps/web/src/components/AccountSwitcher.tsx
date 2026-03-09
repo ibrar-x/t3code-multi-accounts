@@ -17,15 +17,19 @@ import {
 } from "./AccountSwitcher.logic";
 import { Button } from "./ui/button";
 import {
-  Combobox,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxPopup,
-  ComboboxSeparator,
-  ComboboxTrigger,
-} from "./ui/combobox";
-
-const CONNECT_ACCOUNT_VALUE = "__connect_account__";
+  Menu,
+  MenuGroup,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuShortcut,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "./ui/menu";
 
 const PROVIDER_LABELS: Record<ProviderKind, string> = {
   codex: "Codex",
@@ -125,17 +129,19 @@ export function AccountSwitcher({
   const [isOpen, setIsOpen] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
+  const [defaultProviderAccount, setDefaultProviderAccount] = useState<ProviderAccount | null>(null);
 
   const providerAccounts = useMemo(
-    () => getProviderAccounts(settings.multiAccount.accounts, provider),
+    () =>
+      getProviderAccounts(settings.multiAccount.accounts, provider).filter(
+        (account) => !account.isDefault,
+      ),
     [provider, settings.multiAccount.accounts],
   );
 
   const activeAccountId = settings.multiAccount.activeAccountByProvider[provider] ?? null;
   const activeAccount = getActiveAccountForProvider(providerAccounts, activeAccountId);
-  const defaultProfileAccount =
-    providerAccounts.find((account) => account.isDefault) ?? providerAccounts[0] ?? null;
-  const detailsAccount = activeAccount ?? defaultProfileAccount;
+  const detailsAccount = activeAccount ?? defaultProviderAccount ?? providerAccounts[0] ?? null;
 
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
   const primaryRemainingPercent = readPrimaryRemainingPercent(detailsAccount);
@@ -190,7 +196,11 @@ export function AccountSwitcher({
       .list({})
       .then((response) => {
         if (cancelled) return;
-        const nextAccounts = response.accounts;
+        const nextProviderAccounts = getProviderAccounts(response.accounts, provider);
+        const nextDefaultAccount =
+          nextProviderAccounts.find((account) => account.isDefault) ?? null;
+        setDefaultProviderAccount(nextDefaultAccount);
+        const nextAccounts = response.accounts.filter((account) => !account.isDefault);
         const nextActive = cleanupActiveAccountByProvider(
           settings.multiAccount.activeAccountByProvider,
           nextAccounts,
@@ -206,7 +216,7 @@ export function AccountSwitcher({
     return () => {
       cancelled = true;
     };
-  }, [settings.multiAccount.activeAccountByProvider, updateSettings]);
+  }, [provider, settings.multiAccount.activeAccountByProvider, updateSettings]);
 
   useEffect(() => {
     if (variant !== "inline") {
@@ -303,85 +313,74 @@ export function AccountSwitcher({
   }, [provider, settings.multiAccount.accounts, settings.multiAccount.activeAccountByProvider, updateSettings]);
 
   const triggerLabel =
-    selectedValue === DEFAULT_OPTION_VALUE
-      ? "Default account"
-      : providerAccounts.find((account) => account.id === selectedValue)?.name ?? "Default account";
-
-  const popupItems = [
-    DEFAULT_OPTION_VALUE,
-    ...providerAccounts.map((account) => account.id),
-    CONNECT_ACCOUNT_VALUE,
-  ];
+    selectedValue === DEFAULT_OPTION_VALUE ? "Default account" : activeAccount?.name ?? "Default account";
+  const triggerDetails = inlineError ?? inlineDetails;
 
   if (variant === "inline") {
     return (
-      <div className="min-w-0">
-        <Combobox
-          items={popupItems}
-          filteredItems={popupItems}
+      <div className="min-w-0 max-w-full">
+        <Menu
           open={isOpen}
-          onOpenChange={setIsOpen}
-          value={selectedValue}
+          onOpenChange={(open) => {
+            if (disabled || isConnecting) {
+              setIsOpen(false);
+              return;
+            }
+            setIsOpen(open);
+          }}
         >
-          <ComboboxTrigger
+          <MenuTrigger
             render={<Button variant="ghost" size="xs" />}
             className="text-muted-foreground/70 hover:text-foreground/80"
             disabled={disabled || isConnecting}
             title="Switch account (Cmd+Shift+A)"
           >
-            <span className="max-w-[220px] truncate">{triggerLabel}</span>
+            <span className="max-w-[360px] truncate">
+              {triggerDetails ? `${triggerLabel} · ${triggerDetails}` : triggerLabel}
+            </span>
             <ChevronDownIcon />
-          </ComboboxTrigger>
-          <ComboboxPopup align="end" side="top" className="w-72">
-            <ComboboxList className="max-h-56">
-              <ComboboxItem
-                hideIndicator
-                value={DEFAULT_OPTION_VALUE}
-                className={
-                  selectedValue === DEFAULT_OPTION_VALUE ? "bg-accent text-foreground" : undefined
-                }
-                onClick={() => applySelection(DEFAULT_OPTION_VALUE)}
-              >
-                <div className="flex w-full items-center justify-between gap-2">
-                  <span>Default (system credentials)</span>
-                  {selectedValue === DEFAULT_OPTION_VALUE ? (
-                    <span className="text-[10px] text-muted-foreground/60">active</span>
-                  ) : null}
-                </div>
-              </ComboboxItem>
-              {providerAccounts.map((account) => (
-                <ComboboxItem
-                  hideIndicator
-                  key={account.id}
-                  value={account.id}
-                  className={account.id === selectedValue ? "bg-accent text-foreground" : undefined}
-                  onClick={() => applySelection(account.id)}
+          </MenuTrigger>
+          <MenuPopup align="end" side="top" className="w-80">
+            <MenuSub>
+              <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
+              <MenuSubPopup className="w-80 [--available-height:min(22rem,70vh)]">
+                <MenuGroup>
+                  <MenuRadioGroup
+                    value={selectedValue}
+                    onValueChange={(value) => {
+                      applySelection(value);
+                      setIsOpen(false);
+                    }}
+                  >
+                    <MenuRadioItem value={DEFAULT_OPTION_VALUE}>
+                      <span className="truncate">
+                        Default (system credentials)
+                        {detailsAccount?.codexProfile?.type
+                          ? ` · ${detailsAccount.codexProfile.type}`
+                          : ""}
+                      </span>
+                    </MenuRadioItem>
+                    {providerAccounts.map((account) => (
+                      <MenuRadioItem key={account.id} value={account.id}>
+                        <span className="truncate">{inlineAccountLabel(account)}</span>
+                      </MenuRadioItem>
+                    ))}
+                  </MenuRadioGroup>
+                </MenuGroup>
+                <MenuSeparator />
+                <MenuItem
+                  disabled={isConnecting}
+                  onClick={() => {
+                    void connectNewAccount();
+                  }}
                 >
-                  <div className="flex w-full items-center justify-between gap-2">
-                    <span className="truncate">{inlineAccountLabel(account)}</span>
-                    {account.id === selectedValue ? (
-                      <span className="text-[10px] text-muted-foreground/60">active</span>
-                    ) : null}
-                  </div>
-                </ComboboxItem>
-              ))}
-              <ComboboxSeparator />
-              <ComboboxItem
-                hideIndicator
-                value={CONNECT_ACCOUNT_VALUE}
-                onClick={() => {
-                  void connectNewAccount();
-                }}
-              >
-                {isConnecting ? "Connecting account..." : "+ Connect account"}
-              </ComboboxItem>
-            </ComboboxList>
-          </ComboboxPopup>
-        </Combobox>
-
-        <p className="mt-0.5 max-w-[240px] truncate text-[11px] text-muted-foreground/60">
-          {inlineError ?? inlineDetails ?? "Default system credentials"}
-        </p>
+                  {isConnecting ? "Connecting account..." : "+ Connect account"}
+                  <MenuShortcut>⌘⇧A</MenuShortcut>
+                </MenuItem>
+              </MenuSubPopup>
+            </MenuSub>
+          </MenuPopup>
+        </Menu>
       </div>
     );
   }

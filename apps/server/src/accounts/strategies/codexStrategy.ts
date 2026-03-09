@@ -16,6 +16,90 @@ export interface CodexCredentialStrategyOptions {
   readonly openUrl?: (url: string) => Promise<void> | void;
 }
 
+const OSC8_URL_PATTERN = new RegExp(
+  String.raw`\u001B\]8;;([^\u001B\u0007]+)(?:\u0007|\u001B\\)`,
+  "g",
+);
+const ANSI_SEQUENCE_PATTERN = new RegExp(
+  String.raw`\u001B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])`,
+  "g",
+);
+const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
+const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
+
+function normalizeUrlCandidate(rawUrl: string): string | null {
+  const cleaned = rawUrl
+    .replace(ANSI_SEQUENCE_PATTERN, "")
+    .replace(/[),.;]+$/g, "")
+    .trim();
+  if (cleaned.length === 0) {
+    return null;
+  }
+  try {
+    const parsed = new URL(cleaned);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function loginUrlScore(url: string): number {
+  try {
+    const parsed = new URL(url);
+    const hasPath = parsed.pathname !== "/" && parsed.pathname.length > 0;
+    const hasQuery = parsed.search.length > 1;
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === "auth.openai.com") {
+      return hasPath || hasQuery ? 5 : 1;
+    }
+
+    if (host.endsWith("openai.com")) {
+      return hasPath || hasQuery ? 4 : 1;
+    }
+
+    return hasPath || hasQuery ? 3 : 1;
+  } catch {
+    return 0;
+  }
+}
+
+export function resolveCodexLoginUrl(rawOutput: string): string | null {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+
+  for (const match of rawOutput.matchAll(OSC8_URL_PATTERN)) {
+    const normalized = normalizeUrlCandidate(match[1] ?? "");
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+
+  const withoutOsc8 = rawOutput
+    .replace(OSC8_URL_PATTERN, " ")
+    .replace(ANSI_SEQUENCE_PATTERN, " ");
+  for (const match of withoutOsc8.matchAll(URL_PATTERN)) {
+    const normalized = normalizeUrlCandidate(match[0]);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    candidates.push(normalized);
+  }
+
+  let bestUrl: string | null = null;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    const score = loginUrlScore(candidate);
+    if (score <= bestScore) continue;
+    bestScore = score;
+    bestUrl = candidate;
+  }
+
+  return bestScore >= 2 ? bestUrl : null;
+}
+
 export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   readonly providerKind = "codex" as const;
   private readonly spawnImpl: SpawnFn;
@@ -39,6 +123,7 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const recentOutputLines: string[] = [];
+      let urlScanBuffer = "";
       let openedLoginUrl = false;
 
       const recordOutput = (rawChunk: string) => {
@@ -62,21 +147,16 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         if (openedLoginUrl) {
           return;
         }
-        const match = rawChunk.match(/https?:\/\/\S+/);
-        const rawUrl = match?.[0];
-        if (!rawUrl) {
-          return;
-        }
-
-        const normalizedUrl = rawUrl.replace(/[),.;]+$/g, "");
-        if (normalizedUrl.length === 0) {
+        urlScanBuffer = `${urlScanBuffer}\n${rawChunk}`.slice(-MAX_URL_SCAN_BUFFER_CHARS);
+        const loginUrl = resolveCodexLoginUrl(urlScanBuffer);
+        if (!loginUrl) {
           return;
         }
 
         openedLoginUrl = true;
-        Promise.resolve(this.openUrl(normalizedUrl)).catch((error) => {
+        Promise.resolve(this.openUrl(loginUrl)).catch((error) => {
           const reason = error instanceof Error ? error.message : String(error);
-          this.warningLogger(`[codexStrategy] Failed to open login URL "${normalizedUrl}": ${reason}`);
+          this.warningLogger(`[codexStrategy] Failed to open login URL "${loginUrl}": ${reason}`);
         });
       };
 
