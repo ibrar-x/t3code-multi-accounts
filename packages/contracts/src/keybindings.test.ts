@@ -23,6 +23,12 @@ const decodeResolvedRule = Schema.decodeUnknownEffect(ResolvedKeybindingRule as 
 
 it.effect("parses keybinding rules", () =>
   Effect.gen(function* () {
+    const parsedSidebarToggle = yield* decode(KeybindingRule, {
+      key: "mod+b",
+      command: "sidebar.project.toggle",
+    });
+    assert.strictEqual(parsedSidebarToggle.command, "sidebar.project.toggle");
+
     const parsed = yield* decode(KeybindingRule, {
       key: "mod+j",
       command: "terminal.toggle",

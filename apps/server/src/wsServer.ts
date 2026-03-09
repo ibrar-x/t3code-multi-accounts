@@ -895,6 +895,29 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         return { keybindings: keybindingsConfig, issues: [] };
       }
 
+      case WS_METHODS.serverGetKeybindingsConfig: {
+        const [configState, contents] = yield* Effect.all([
+          keybindingsManager.loadConfigState,
+          keybindingsManager.readConfigText,
+        ]);
+        return {
+          contents,
+          keybindings: configState.keybindings,
+          issues: configState.issues,
+        };
+      }
+
+      case WS_METHODS.serverSetKeybindingsConfig: {
+        const body = stripRequestTag(request.body);
+        const configState = yield* keybindingsManager.replaceConfigText(body.contents);
+        const contents = yield* keybindingsManager.readConfigText;
+        return {
+          contents,
+          keybindings: configState.keybindings,
+          issues: configState.issues,
+        };
+      }
+
       case WS_METHODS.accountsList: {
         const accounts = yield* Effect.tryPromise({
           try: () => accountManager.listAccounts(),

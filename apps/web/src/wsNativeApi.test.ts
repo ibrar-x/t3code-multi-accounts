@@ -349,6 +349,24 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards keybindings config rpc calls to server websocket methods", async () => {
+    requestMock.mockResolvedValue({
+      contents: "[]",
+      keybindings: [],
+      issues: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.server.getKeybindingsConfig();
+    await api.server.setKeybindingsConfig({ contents: "[]" });
+
+    expect(requestMock).toHaveBeenNthCalledWith(1, WS_METHODS.serverGetKeybindingsConfig);
+    expect(requestMock).toHaveBeenNthCalledWith(2, WS_METHODS.serverSetKeybindingsConfig, {
+      contents: "[]",
+    });
+  });
+
   it("forwards account rpc calls to the websocket account methods", async () => {
     requestMock.mockResolvedValue({});
     const { createWsNativeApi } = await import("./wsNativeApi");

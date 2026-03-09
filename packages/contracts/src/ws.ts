@@ -31,6 +31,7 @@ import {
 import { KeybindingRule } from "./keybindings";
 import { ProjectSearchEntriesInput, ProjectWriteFileInput } from "./project";
 import { OpenInEditorInput } from "./editor";
+import { ServerSetKeybindingsConfigInput } from "./server";
 import {
   AccountAddRequest,
   AccountCheckRequest,
@@ -73,6 +74,8 @@ export const WS_METHODS = {
   // Server meta
   serverGetConfig: "server.getConfig",
   serverUpsertKeybinding: "server.upsertKeybinding",
+  serverGetKeybindingsConfig: "server.getKeybindingsConfig",
+  serverSetKeybindingsConfig: "server.setKeybindingsConfig",
 
   // Accounts methods
   accountsList: "accounts.list",
@@ -142,6 +145,8 @@ const WebSocketRequestBody = Schema.Union([
   // Server meta
   tagRequestBody(WS_METHODS.serverGetConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
+  tagRequestBody(WS_METHODS.serverGetKeybindingsConfig, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverSetKeybindingsConfig, ServerSetKeybindingsConfigInput),
 
   // Accounts methods
   tagRequestBody(WS_METHODS.accountsList, AccountListRequest),
