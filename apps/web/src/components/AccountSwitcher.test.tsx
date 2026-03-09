@@ -5,7 +5,7 @@ import {
   getActiveAccountForProvider,
   getNextActiveAccountByProvider,
   getProviderAccounts,
-} from "./AccountSwitcher";
+} from "./AccountSwitcher.logic";
 
 function makeAccount(id: string, providerKind: ProviderAccount["providerKind"]): ProviderAccount {
   return {

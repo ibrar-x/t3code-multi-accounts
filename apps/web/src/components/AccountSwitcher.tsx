@@ -1,11 +1,31 @@
 import type { AccountCheckReason, ProviderAccount, ProviderKind } from "@t3tools/contracts";
+import { ChevronDownIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useEffect, useMemo } from "react";
+import { useAppSettings } from "../appSettings";
+import { readNativeApi } from "../nativeApi";
+import {
+  cleanupActiveAccountByProvider,
+  clearActiveForProvider,
+  upsertAccountById,
+} from "./AccountManagerPanel.state";
+import {
+  DEFAULT_OPTION_VALUE,
+  getActiveAccountForProvider,
+  getNextActiveAccountByProvider,
+  getProviderAccounts,
+} from "./AccountSwitcher.logic";
+import { Button } from "./ui/button";
+import {
+  Combobox,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSeparator,
+  ComboboxTrigger,
+} from "./ui/combobox";
 
-import { type AppSettings, useAppSettings } from "../appSettings";
-import { clearActiveForProvider, setActiveForAccount } from "./AccountManagerPanel.state";
-
-const DEFAULT_OPTION_VALUE = "__default__";
+const CONNECT_ACCOUNT_VALUE = "__connect_account__";
 
 const PROVIDER_LABELS: Record<ProviderKind, string> = {
   codex: "Codex",
@@ -37,37 +57,27 @@ function inlineAccountLabel(account: ProviderAccount): string {
   return `${account.name} · ${remainingPercent}%`;
 }
 
-export function getProviderAccounts(
-  accounts: readonly ProviderAccount[],
-  provider: ProviderKind,
-): ProviderAccount[] {
-  return accounts.filter((account) => account.providerKind === provider);
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return target.closest("input, textarea, select, [contenteditable='true']") !== null;
 }
 
-export function getActiveAccountForProvider(
-  providerAccounts: readonly ProviderAccount[],
-  activeAccountId: string | null | undefined,
-): ProviderAccount | null {
-  if (!activeAccountId) {
-    return null;
+function isOpenShortcut(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.altKey || !event.shiftKey) {
+    return false;
   }
-  return providerAccounts.find((account) => account.id === activeAccountId) ?? null;
-}
-
-export function getNextActiveAccountByProvider(input: {
-  provider: ProviderKind;
-  selectedValue: string;
-  providerAccounts: readonly ProviderAccount[];
-  activeAccountByProvider: AppSettings["multiAccount"]["activeAccountByProvider"];
-}): AppSettings["multiAccount"]["activeAccountByProvider"] {
-  if (input.selectedValue === DEFAULT_OPTION_VALUE) {
-    return clearActiveForProvider(input.activeAccountByProvider, input.provider);
+  if (event.key.toLowerCase() !== "a") {
+    return false;
   }
-  const account = input.providerAccounts.find((entry) => entry.id === input.selectedValue);
-  if (!account) {
-    return input.activeAccountByProvider;
-  }
-  return setActiveForAccount(input.activeAccountByProvider, account);
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  return isMac
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey;
 }
 
 export interface AccountSwitcherProps {
@@ -111,6 +121,10 @@ export function AccountSwitcher({
   variant = "inline",
 }: AccountSwitcherProps) {
   const { settings, updateSettings } = useAppSettings();
+  const hasHydratedAccountsRef = useRef(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const providerAccounts = useMemo(
     () => getProviderAccounts(settings.multiAccount.accounts, provider),
@@ -119,14 +133,17 @@ export function AccountSwitcher({
 
   const activeAccountId = settings.multiAccount.activeAccountByProvider[provider] ?? null;
   const activeAccount = getActiveAccountForProvider(providerAccounts, activeAccountId);
+  const defaultProfileAccount =
+    providerAccounts.find((account) => account.isDefault) ?? providerAccounts[0] ?? null;
+  const detailsAccount = activeAccount ?? defaultProfileAccount;
 
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
-  const primaryRemainingPercent = readPrimaryRemainingPercent(activeAccount);
-  const primaryResetLabel = formatResetLabel(activeAccount);
-  const inlineActiveSummary = activeAccount
+  const primaryRemainingPercent = readPrimaryRemainingPercent(detailsAccount);
+  const primaryResetLabel = formatResetLabel(detailsAccount);
+  const inlineDetails = detailsAccount
     ? [
-        activeAccount.codexProfile?.email,
-        activeAccount.codexProfile?.type,
+        detailsAccount.codexProfile?.email,
+        detailsAccount.codexProfile?.type,
         primaryRemainingPercent !== null ? `${primaryRemainingPercent}% remaining` : null,
         primaryResetLabel ? `resets ${primaryResetLabel}` : null,
       ]
@@ -159,97 +176,252 @@ export function AccountSwitcher({
     updateSettings,
   ]);
 
-  const handleChange = (value: string) => {
-    if (disabled) {
+  useEffect(() => {
+    if (hasHydratedAccountsRef.current) {
+      return;
+    }
+    hasHydratedAccountsRef.current = true;
+    const api = readNativeApi();
+    if (!api) {
+      return;
+    }
+    let cancelled = false;
+    void api.accounts
+      .list({})
+      .then((response) => {
+        if (cancelled) return;
+        const nextAccounts = response.accounts;
+        const nextActive = cleanupActiveAccountByProvider(
+          settings.multiAccount.activeAccountByProvider,
+          nextAccounts,
+        );
+        updateSettings({
+          multiAccount: {
+            accounts: nextAccounts,
+            activeAccountByProvider: nextActive,
+          },
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.multiAccount.activeAccountByProvider, updateSettings]);
+
+  useEffect(() => {
+    if (variant !== "inline") {
       return;
     }
 
-    const currentMultiAccount = settings.multiAccount;
-    const nextActiveAccountByProvider = getNextActiveAccountByProvider({
-      provider,
-      selectedValue: value,
-      providerAccounts,
-      activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
-    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (disabled || isEditableEventTarget(event.target) || !isOpenShortcut(event)) {
+        return;
+      }
+      event.preventDefault();
+      setIsOpen(true);
+      setInlineError(null);
+    };
 
-    updateSettings({
-      multiAccount: {
-        accounts: currentMultiAccount.accounts,
-        activeAccountByProvider: nextActiveAccountByProvider,
-      },
-    });
-  };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [disabled, variant]);
 
-  const wrapperClasses =
-    variant === "panel"
-      ? "rounded-lg border border-border/70 bg-background/70 px-2 py-2"
-      : "min-w-0";
+  const applySelection = useCallback(
+    (value: string) => {
+      if (disabled) {
+        return;
+      }
+
+      const currentMultiAccount = settings.multiAccount;
+      const nextActiveAccountByProvider = getNextActiveAccountByProvider({
+        provider,
+        selectedValue: value,
+        providerAccounts,
+        activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
+      });
+
+      updateSettings({
+        multiAccount: {
+          accounts: currentMultiAccount.accounts,
+          activeAccountByProvider: nextActiveAccountByProvider,
+        },
+      });
+      setInlineError(null);
+    },
+    [disabled, provider, providerAccounts, settings.multiAccount, updateSettings],
+  );
+
+  const connectNewAccount = useCallback(async () => {
+    if (provider !== "codex") {
+      setInlineError(`Connecting accounts for ${PROVIDER_LABELS[provider]} is not supported yet.`);
+      return;
+    }
+
+    const name = window.prompt("Enter a Codex account name (for example: Work)")?.trim() ?? "";
+    if (!name) {
+      return;
+    }
+
+    const api = readNativeApi();
+    if (!api) {
+      setInlineError("Native API is unavailable.");
+      return;
+    }
+
+    setIsConnecting(true);
+    setInlineError(null);
+    try {
+      const response = await api.accounts.add({
+        providerKind: provider,
+        name,
+      });
+      const nextAccounts = upsertAccountById(settings.multiAccount.accounts, response.account);
+      const nextActive = getNextActiveAccountByProvider({
+        provider,
+        selectedValue: response.account.id,
+        providerAccounts: nextAccounts.filter((account) => account.providerKind === provider),
+        activeAccountByProvider: cleanupActiveAccountByProvider(
+          settings.multiAccount.activeAccountByProvider,
+          nextAccounts,
+        ),
+      });
+
+      updateSettings({
+        multiAccount: {
+          accounts: nextAccounts,
+          activeAccountByProvider: nextActive,
+        },
+      });
+      setIsOpen(false);
+    } catch (error) {
+      setInlineError(error instanceof Error ? error.message : "Unable to connect account.");
+    } finally {
+      setIsConnecting(false);
+    }
+  }, [provider, settings.multiAccount.accounts, settings.multiAccount.activeAccountByProvider, updateSettings]);
+
+  const triggerLabel =
+    selectedValue === DEFAULT_OPTION_VALUE
+      ? "Default account"
+      : providerAccounts.find((account) => account.id === selectedValue)?.name ?? "Default account";
+
+  const popupItems = [
+    DEFAULT_OPTION_VALUE,
+    ...providerAccounts.map((account) => account.id),
+    CONNECT_ACCOUNT_VALUE,
+  ];
+
+  if (variant === "inline") {
+    return (
+      <div className="min-w-0">
+        <Combobox
+          items={popupItems}
+          filteredItems={popupItems}
+          open={isOpen}
+          onOpenChange={setIsOpen}
+          value={selectedValue}
+        >
+          <ComboboxTrigger
+            render={<Button variant="ghost" size="xs" />}
+            className="text-muted-foreground/70 hover:text-foreground/80"
+            disabled={disabled || isConnecting}
+            title="Switch account (Cmd+Shift+A)"
+          >
+            <span className="max-w-[220px] truncate">{triggerLabel}</span>
+            <ChevronDownIcon />
+          </ComboboxTrigger>
+          <ComboboxPopup align="end" side="top" className="w-72">
+            <ComboboxList className="max-h-56">
+              <ComboboxItem
+                hideIndicator
+                value={DEFAULT_OPTION_VALUE}
+                className={
+                  selectedValue === DEFAULT_OPTION_VALUE ? "bg-accent text-foreground" : undefined
+                }
+                onClick={() => applySelection(DEFAULT_OPTION_VALUE)}
+              >
+                <div className="flex w-full items-center justify-between gap-2">
+                  <span>Default (system credentials)</span>
+                  {selectedValue === DEFAULT_OPTION_VALUE ? (
+                    <span className="text-[10px] text-muted-foreground/60">active</span>
+                  ) : null}
+                </div>
+              </ComboboxItem>
+              {providerAccounts.map((account) => (
+                <ComboboxItem
+                  hideIndicator
+                  key={account.id}
+                  value={account.id}
+                  className={account.id === selectedValue ? "bg-accent text-foreground" : undefined}
+                  onClick={() => applySelection(account.id)}
+                >
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="truncate">{inlineAccountLabel(account)}</span>
+                    {account.id === selectedValue ? (
+                      <span className="text-[10px] text-muted-foreground/60">active</span>
+                    ) : null}
+                  </div>
+                </ComboboxItem>
+              ))}
+              <ComboboxSeparator />
+              <ComboboxItem
+                hideIndicator
+                value={CONNECT_ACCOUNT_VALUE}
+                onClick={() => {
+                  void connectNewAccount();
+                }}
+              >
+                {isConnecting ? "Connecting account..." : "+ Connect account"}
+              </ComboboxItem>
+            </ComboboxList>
+          </ComboboxPopup>
+        </Combobox>
+
+        <p className="mt-0.5 max-w-[240px] truncate text-[11px] text-muted-foreground/60">
+          {inlineError ?? inlineDetails ?? "Default system credentials"}
+        </p>
+      </div>
+    );
+  }
+
   const selectClasses =
-    variant === "panel"
-      ? "w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-70"
-      : "h-8 max-w-[240px] rounded-md border border-border/60 bg-background/70 px-2 py-1 text-xs text-foreground/90 disabled:cursor-not-allowed disabled:opacity-70";
+    "w-full rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-70";
 
   return (
-    <div className={wrapperClasses}>
-      {variant === "inline" ? (
-        <>
-          <label className="sr-only" htmlFor={`account-switcher-${provider}`}>
-            Active {PROVIDER_LABELS[provider]} account
-          </label>
-          <select
-            id={`account-switcher-${provider}`}
-            className={selectClasses}
-            value={selectedValue}
-            onChange={(event) => handleChange(event.target.value)}
-            disabled={disabled || providerAccounts.length === 0}
-            aria-label={`Active ${PROVIDER_LABELS[provider]} account`}
-            title={inlineActiveSummary ?? undefined}
-          >
-            <option value={DEFAULT_OPTION_VALUE}>Default account</option>
-            {providerAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {inlineAccountLabel(account)}
-              </option>
-            ))}
-          </select>
-        </>
-      ) : (
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
-            Account ({PROVIDER_LABELS[provider]})
-          </p>
-          {disabled && (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-              Locked
-            </span>
-          )}
-        </div>
-      )}
+    <div className="rounded-lg border border-border/70 bg-background/70 px-2 py-2">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-muted-foreground/70">
+          Account ({PROVIDER_LABELS[provider]})
+        </p>
+        {disabled && (
+          <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Locked
+          </span>
+        )}
+      </div>
 
-      {variant === "panel" ? (
-        <>
-          <label className="sr-only" htmlFor={`account-switcher-${provider}`}>
-            Active {PROVIDER_LABELS[provider]} account
-          </label>
-          <select
-            id={`account-switcher-${provider}`}
-            className={selectClasses}
-            value={selectedValue}
-            onChange={(event) => handleChange(event.target.value)}
-            disabled={disabled || providerAccounts.length === 0}
-            aria-label={`Active ${PROVIDER_LABELS[provider]} account`}
-          >
-            <option value={DEFAULT_OPTION_VALUE}>Default (system credentials)</option>
-            {providerAccounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {accountLabel(account)}
-              </option>
-            ))}
-          </select>
-        </>
-      ) : null}
+      <label className="sr-only" htmlFor={`account-switcher-${provider}`}>
+        Active {PROVIDER_LABELS[provider]} account
+      </label>
+      <select
+        id={`account-switcher-${provider}`}
+        className={selectClasses}
+        value={selectedValue}
+        onChange={(event) => applySelection(event.target.value)}
+        disabled={disabled || providerAccounts.length === 0}
+        aria-label={`Active ${PROVIDER_LABELS[provider]} account`}
+      >
+        <option value={DEFAULT_OPTION_VALUE}>Default (system credentials)</option>
+        {providerAccounts.map((account) => (
+          <option key={account.id} value={account.id}>
+            {accountLabel(account)}
+          </option>
+        ))}
+      </select>
 
-      {variant === "panel" && providerAccounts.length === 0 ? (
+      {providerAccounts.length === 0 ? (
         <p className="mt-1 text-[11px] text-muted-foreground/70">
           No {PROVIDER_LABELS[provider]} accounts yet. Manage accounts in{" "}
           <a href="/settings" className="underline underline-offset-2">
@@ -257,8 +429,8 @@ export function AccountSwitcher({
           </a>
           .
         </p>
-      ) : variant === "panel" &&
-        activeAccount &&
+      ) :
+      activeAccount &&
         activeAccount.credentialStatus &&
         WARN_STATUS.has(activeAccount.credentialStatus) ? (
         <p className="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
@@ -266,10 +438,10 @@ export function AccountSwitcher({
         </p>
       ) : null}
 
-      {variant === "panel" && activeAccount ? (
+      {detailsAccount ? (
         <p className="mt-1 text-[11px] text-muted-foreground/70">
-          {activeAccount.codexProfile?.email ? `${activeAccount.codexProfile.email} · ` : ""}
-          {activeAccount.codexProfile?.type ? `${activeAccount.codexProfile.type} · ` : ""}
+          {detailsAccount.codexProfile?.email ? `${detailsAccount.codexProfile.email} · ` : ""}
+          {detailsAccount.codexProfile?.type ? `${detailsAccount.codexProfile.type} · ` : ""}
           {primaryRemainingPercent !== null
             ? `${primaryRemainingPercent}% remaining`
             : "Limit unavailable"}
@@ -277,13 +449,13 @@ export function AccountSwitcher({
         </p>
       ) : null}
 
-      {variant === "panel" && disabled ? (
+      {disabled ? (
         <p className="mt-1 text-[11px] text-muted-foreground/70">
           Switching is disabled while this session is active.
         </p>
-      ) : variant === "panel" ? (
+      ) : (
         <p className="mt-1 text-[11px] text-muted-foreground/70">Applies to new sessions only.</p>
-      ) : null}
+      )}
     </div>
   );
 }
