@@ -3860,21 +3860,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
         </form>
       </div>
 
-      {isGitRepo && (
-        <BranchToolbar
-          threadId={activeThread.id}
-          onEnvModeChange={onEnvModeChange}
-          envLocked={envLocked}
-          onComposerFocusRequest={scheduleComposerFocus}
-          accountControl={
-            <AccountSwitcher
-              provider="codex"
-              disabled={isAccountSwitcherLocked}
-              variant="inline"
-            />
-          }
-        />
-      )}
+      <BranchToolbar
+        threadId={activeThread.id}
+        onEnvModeChange={onEnvModeChange}
+        envLocked={envLocked}
+        showBranchSelector={isGitRepo}
+        onComposerFocusRequest={scheduleComposerFocus}
+        accountControl={
+          <AccountSwitcher
+            provider="codex"
+            disabled={isAccountSwitcherLocked}
+            variant="inline"
+          />
+        }
+      />
 
       {(() => {
         if (!terminalState.terminalOpen || !activeProject) {

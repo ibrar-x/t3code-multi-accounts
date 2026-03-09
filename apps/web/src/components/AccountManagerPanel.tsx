@@ -7,7 +7,6 @@ import { useStore } from "../store";
 import {
   cleanupActiveAccountByProvider,
   clearActiveForProvider,
-  normalizeSupportedProviders,
   removeAccountAndCleanupActive,
   setAccountCredentialStatus,
   setActiveForAccount,
@@ -66,9 +65,8 @@ export function AccountManagerPanel() {
   );
 
   const settingsRef = useRef(settings);
-  const [supportedProviders, setSupportedProviders] = useState<ProviderKind[]>([CODEX_ONLY_PROVIDER]);
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>(CODEX_ONLY_PROVIDER);
   const [selectedAccountId, setSelectedAccountId] = useState<string>(DEFAULT_ACCOUNT_VALUE);
+  const selectedAccountIdRef = useRef(selectedAccountId);
   const [newAccountName, setNewAccountName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -78,6 +76,10 @@ export function AccountManagerPanel() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  useEffect(() => {
+    selectedAccountIdRef.current = selectedAccountId;
+  }, [selectedAccountId]);
 
   const commitMultiAccount = useCallback(
     (nextMultiAccount: AppSettings["multiAccount"]) => {
@@ -93,10 +95,7 @@ export function AccountManagerPanel() {
   const refreshAccounts = useCallback(async () => {
     const api = ensureNativeApi();
     const currentMultiAccount = settingsRef.current.multiAccount;
-    const [supported, listed] = await Promise.all([
-      api.accounts.supported(),
-      api.accounts.list({}),
-    ]);
+    const listed = await api.accounts.list({});
 
     const nextAccounts = listed.accounts.filter((account) => account.providerKind === CODEX_ONLY_PROVIDER);
     const nextActive = cleanupActiveAccountByProvider(
@@ -108,15 +107,11 @@ export function AccountManagerPanel() {
       accounts: nextAccounts,
       activeAccountByProvider: nextActive,
     });
-    setLoadError(null);
-
-    const codexOnlySupported = normalizeSupportedProviders(
-      supported.providers.filter((provider) => provider === CODEX_ONLY_PROVIDER),
-    );
-    setSupportedProviders(codexOnlySupported.length > 0 ? codexOnlySupported : [CODEX_ONLY_PROVIDER]);
 
     const nextActiveId = nextActive[CODEX_ONLY_PROVIDER] ?? null;
-    const selectedStillExists = nextAccounts.some((account) => account.id === selectedAccountId);
+    const selectedStillExists = nextAccounts.some(
+      (account) => account.id === selectedAccountIdRef.current,
+    );
     if (selectedStillExists) {
       return;
     }
@@ -128,36 +123,31 @@ export function AccountManagerPanel() {
 
     const firstId = nextAccounts[0]?.id;
     setSelectedAccountId(firstId ?? DEFAULT_ACCOUNT_VALUE);
-  }, [commitMultiAccount, selectedAccountId]);
+  }, [commitMultiAccount]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const runRefresh = useCallback(async () => {
     setIsLoading(true);
-    void refreshAccounts()
-      .catch((error) => {
-        if (cancelled) return;
-        setLoadError(toActionErrorMessage(error, "Unable to load accounts."));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+    try {
+      await refreshAccounts();
+      setLoadError(null);
+    } catch (error) {
+      setLoadError(toActionErrorMessage(error, "Unable to load accounts."));
+    } finally {
+      setIsLoading(false);
+    }
   }, [refreshAccounts]);
 
   useEffect(() => {
-    if (!supportedProviders.includes(selectedProvider)) {
-      setSelectedProvider(CODEX_ONLY_PROVIDER);
-    }
-  }, [selectedProvider, supportedProviders]);
+    void runRefresh();
+  }, [runRefresh]);
 
   const providerAccounts = useMemo(
-    () => settings.multiAccount.accounts.filter((account) => account.providerKind === selectedProvider),
-    [selectedProvider, settings.multiAccount.accounts],
+    () =>
+      settings.multiAccount.accounts.filter((account) => account.providerKind === CODEX_ONLY_PROVIDER),
+    [settings.multiAccount.accounts],
   );
-  const activeAccountId = settings.multiAccount.activeAccountByProvider[selectedProvider] ?? null;
+  const activeAccountId =
+    settings.multiAccount.activeAccountByProvider[CODEX_ONLY_PROVIDER] ?? null;
   const activeAccount = providerAccounts.find((account) => account.id === activeAccountId) ?? null;
   const selectedAccount =
     providerAccounts.find((account) => account.id === selectedAccountId) ?? activeAccount ?? null;
@@ -209,7 +199,10 @@ export function AccountManagerPanel() {
       const currentMultiAccount = settingsRef.current.multiAccount;
       const nextActiveAccountByProvider =
         value === DEFAULT_ACCOUNT_VALUE
-          ? clearActiveForProvider(currentMultiAccount.activeAccountByProvider, selectedProvider)
+          ? clearActiveForProvider(
+              currentMultiAccount.activeAccountByProvider,
+              CODEX_ONLY_PROVIDER,
+            )
           : (() => {
               const account = providerAccounts.find((entry) => entry.id === value);
               return account
@@ -225,7 +218,7 @@ export function AccountManagerPanel() {
       setActionError(null);
       setSelectedAccountId(value);
     },
-    [commitMultiAccount, hasActiveSession, providerAccounts, selectedProvider],
+    [commitMultiAccount, hasActiveSession, providerAccounts],
   );
 
   const handleCheckSelectedAccount = useCallback(async () => {
@@ -302,7 +295,7 @@ export function AccountManagerPanel() {
             Select provider, connect a Codex account, then choose the active account for new sessions.
           </p>
         </div>
-        <Button size="xs" variant="outline" onClick={() => void refreshAccounts()} disabled={isLoading}>
+        <Button size="xs" variant="outline" onClick={() => void runRefresh()} disabled={isLoading}>
           {isLoading ? "Refreshing..." : "Refresh"}
         </Button>
       </div>
@@ -327,15 +320,12 @@ export function AccountManagerPanel() {
         <label className="block space-y-1">
           <span className="text-xs font-medium text-foreground">Provider</span>
           <Select
-            items={supportedProviders.map((provider) => ({
+            items={[CODEX_ONLY_PROVIDER].map((provider) => ({
               label: provider === "codex" ? "Codex" : provider,
               value: provider,
             }))}
-            value={selectedProvider}
-            onValueChange={(value) => {
-              if (!value || value !== CODEX_ONLY_PROVIDER) return;
-              setSelectedProvider(CODEX_ONLY_PROVIDER);
-            }}
+            value={CODEX_ONLY_PROVIDER}
+            onValueChange={() => undefined}
           >
             <SelectTrigger>
               <SelectValue />
@@ -349,7 +339,8 @@ export function AccountManagerPanel() {
         <div className="rounded-lg border border-border bg-background px-3 py-3">
           <p className="text-xs font-medium text-foreground">Connect Codex account</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Runs <code>codex login</code> and stores credentials in <code>~/.t3code/accounts</code>.
+            Runs <code>codex login --device-auth</code> and stores credentials in{" "}
+            <code>~/.t3code/accounts</code>.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <Input

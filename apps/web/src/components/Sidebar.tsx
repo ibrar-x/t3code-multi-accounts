@@ -301,6 +301,7 @@ export default function Sidebar() {
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
+  const canPickFolder = typeof window.desktopBridge?.pickFolder === "function";
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
@@ -1314,7 +1315,7 @@ export default function Sidebar() {
                 if (event.key === "Escape") setAddingProject(false);
               }}
             />
-            {isElectron && (
+            {canPickFolder && (
               <button
                 type="button"
                 className="mb-2 flex w-full items-center justify-center rounded-md border border-border px-2 py-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-60"
@@ -1353,11 +1354,12 @@ export default function Sidebar() {
             </button>
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-3 py-2 text-xs text-muted-foreground/75 transition-colors duration-150 hover:bg-secondary hover:text-foreground/90"
+              className="inline-flex size-9 items-center justify-center rounded-md border border-border text-muted-foreground/75 transition-colors duration-150 hover:bg-secondary hover:text-foreground/90"
               onClick={() => void navigate({ to: "/settings" })}
+              aria-label="Settings"
+              title="Settings"
             >
               <SettingsIcon className="size-3.5" />
-              <span>Settings</span>
             </button>
           </div>
         )}

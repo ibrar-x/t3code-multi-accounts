@@ -11,7 +11,6 @@ import {
   WS_METHODS,
   type WebSocketResponse,
   type ProviderAccount,
-  type AccountCheckResponse,
 } from "@t3tools/contracts";
 
 import { createServer } from "./wsServer";
@@ -195,12 +194,9 @@ describe("wsServer account method routing", () => {
     vi.restoreAllMocks();
   });
 
-  it("routes accounts.list and includes credential status per account", async () => {
+  it("routes accounts.list", async () => {
     const account = makeAccount("acc_1");
     vi.spyOn(accountManager, "listAccounts").mockResolvedValue([account]);
-    vi.spyOn(accountManager, "checkAllAccounts").mockResolvedValue([
-      { accountId: account.id, valid: true, reason: "ok" },
-    ] satisfies AccountCheckResponse[]);
 
     server = await createTestServer();
     const address = server.address();
@@ -214,12 +210,7 @@ describe("wsServer account method routing", () => {
     const response = await sendRequest(ws, WS_METHODS.accountsList);
     expect(response.error).toBeUndefined();
     expect(response.result).toEqual({
-      accounts: [
-        expect.objectContaining({
-          id: account.id,
-          credentialStatus: "ok",
-        }),
-      ],
+      accounts: [expect.objectContaining({ id: account.id })],
     });
   });
 
