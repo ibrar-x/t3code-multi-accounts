@@ -12,6 +12,7 @@ import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
+import { ConfirmDialogFallbackHost } from "../confirmDialogFallback";
 import { serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -51,6 +52,7 @@ function RootRouteView() {
         <EventRouter />
         <DesktopProjectBootstrap />
         <Outlet />
+        <ConfirmDialogFallbackHost />
       </AnchoredToastProvider>
     </ToastProvider>
   );

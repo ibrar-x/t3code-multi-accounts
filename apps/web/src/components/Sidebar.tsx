@@ -543,9 +543,11 @@ export default function Sidebar() {
       return;
     }
     setIsPickingFolder(true);
-    let pickedPath: string | null = null;
     try {
-      pickedPath = await api.dialogs.pickFolder();
+      const pickedPath = await api.dialogs.pickFolder();
+      if (pickedPath) {
+        await addProjectFromPath(pickedPath);
+      }
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -553,11 +555,9 @@ export default function Sidebar() {
         description:
           error instanceof Error ? error.message : "An error occurred while opening the folder picker.",
       });
+    } finally {
+      setIsPickingFolder(false);
     }
-    if (pickedPath) {
-      await addProjectFromPath(pickedPath);
-    }
-    setIsPickingFolder(false);
   };
 
   const cancelRename = useCallback(() => {

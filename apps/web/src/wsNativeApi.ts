@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { Cause, Schema } from "effect";
 
+import { showConfirmDialogFallback } from "./confirmDialogFallbackStore";
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { WsTransport } from "./wsTransport";
 
@@ -126,7 +127,7 @@ export function createWsNativeApi(): NativeApi {
         if (window.desktopBridge) {
           return window.desktopBridge.confirm(message);
         }
-        return window.confirm(message);
+        return showConfirmDialogFallback(message);
       },
     },
     terminal: {

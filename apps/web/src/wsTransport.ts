@@ -1,15 +1,22 @@
-import { WebSocketResponse, WsPush, WsResponse } from "@t3tools/contracts";
+import { WebSocketResponse, WS_METHODS, WsPush, WsResponse } from "@t3tools/contracts";
 import { Cause, Schema } from "effect";
+import { formatRpcServerError, formatRpcTimeoutMessage } from "./rpcErrorMessages";
 
 type PushListener = (data: unknown) => void;
 
 interface PendingRequest {
+  method: string;
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
 }
 
 const REQUEST_TIMEOUT_MS = 60_000;
+const REQUEST_TIMEOUT_MS_BY_METHOD: Partial<Record<string, number>> = {
+  [WS_METHODS.serverGetKeybindingsConfig]: 20_000,
+  [WS_METHODS.serverSetKeybindingsConfig]: 20_000,
+  [WS_METHODS.serverPickFolder]: 30_000,
+};
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000, 4_000, 8_000];
 const decodeWsResponseFromJson = Schema.decodeUnknownExit(Schema.fromJsonString(WsResponse));
 const isWsPushEnvelope = Schema.is(WsPush);
@@ -52,6 +59,7 @@ export class WsTransport {
     if (typeof method !== "string" || method.length === 0) {
       throw new Error("Request method is required");
     }
+    const timeoutMs = REQUEST_TIMEOUT_MS_BY_METHOD[method] ?? REQUEST_TIMEOUT_MS;
     const id = String(this.nextId++);
     const body = params != null ? { ...params, _tag: method } : { _tag: method };
     const message: WsRequestEnvelope = { id, body };
@@ -59,16 +67,17 @@ export class WsTransport {
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Request timed out: ${method}`));
-      }, REQUEST_TIMEOUT_MS);
+        reject(new Error(formatRpcTimeoutMessage(method)));
+      }, timeoutMs);
 
       this.pending.set(id, {
+        method,
         resolve: resolve as (result: unknown) => void,
         reject,
         timeout,
       });
 
-      this.send(message);
+      this.send(message, timeoutMs);
     });
   }
 
@@ -166,13 +175,13 @@ export class WsTransport {
     this.pending.delete(message.id);
 
     if (message.error) {
-      pending.reject(new Error(message.error.message));
+      pending.reject(new Error(formatRpcServerError(pending.method, message.error.message)));
     } else {
       pending.resolve(message.result);
     }
   }
 
-  private send(message: WsRequestEnvelope) {
+  private send(message: WsRequestEnvelope, timeoutMs: number) {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
       return;
@@ -192,7 +201,7 @@ export class WsTransport {
       }, 50);
 
       // Give up after timeout (the pending request will time out on its own)
-      setTimeout(() => clearInterval(check), REQUEST_TIMEOUT_MS);
+      setTimeout(() => clearInterval(check), timeoutMs);
     };
     waitForOpen();
   }
