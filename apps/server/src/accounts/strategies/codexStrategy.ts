@@ -37,10 +37,10 @@ const LOGIN_GENERIC_FAILURE_MESSAGE =
 
 function stripTerminalUrlNoise(rawUrl: string): string {
   return rawUrl
-    .replace(/(?:\\u001b\[[0-9;]*m)+$/gi, "")
-    .replace(/(?:%1B(?:%5B|\[)[0-9;]*m)+$/gi, "")
-    .replace(/(?:%5B[0-9;]*m)+$/gi, "")
-    .replace(/(?:\[[0-9;]*m)+$/g, "");
+    .replace(/\\u001b\[[0-9;]*m/gi, "")
+    .replace(/%1B(?:%5B|\[)[0-9;]*m/gi, "")
+    .replace(/%5B[0-9;]*m/gi, "")
+    .replace(/\[[0-9;]*m/g, "");
 }
 
 function normalizeUrlCandidate(rawUrl: string): string | null {
@@ -174,6 +174,14 @@ export function resolveCodexLoginUrl(rawOutput: string): string | null {
   }
 
   return bestScore >= 2 ? bestUrl : null;
+}
+
+function resolveCodexOauthAuthorizeUrl(rawOutput: string): string | null {
+  const url = resolveCodexLoginUrl(rawOutput);
+  if (!url) {
+    return null;
+  }
+  return isOauthAuthorizeUrl(url) ? url : null;
 }
 
 function includesAny(haystack: string, patterns: readonly string[]): boolean {
@@ -319,13 +327,12 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         if (openedLoginUrl) {
           return;
         }
-        urlScanBuffer = `${urlScanBuffer}\n${rawChunk}`.slice(-MAX_URL_SCAN_BUFFER_CHARS);
-        const loginUrl = resolveCodexLoginUrl(urlScanBuffer);
-        if (!loginUrl) {
+        if (args.includes("--device-auth")) {
           return;
         }
-        const score = loginUrlScore(loginUrl);
-        if (score < OAUTH_AUTHORIZE_SCORE || !isOauthAuthorizeUrl(loginUrl)) {
+        urlScanBuffer = `${urlScanBuffer}\n${rawChunk}`.slice(-MAX_URL_SCAN_BUFFER_CHARS);
+        const loginUrl = resolveCodexOauthAuthorizeUrl(urlScanBuffer);
+        if (!loginUrl) {
           return;
         }
         openResolvedLoginUrl(loginUrl);
