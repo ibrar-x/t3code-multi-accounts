@@ -225,6 +225,35 @@ describe("CodexCredentialStrategy", () => {
     );
   });
 
+  it("returns a rate-limit message when auth responds with 429", async () => {
+    const profilePath = await makeTempDir();
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (_command, args) => {
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          if (args.includes("--device-auth")) {
+            (child.stderr as EventEmitter).emit(
+              "data",
+              "Error logging in with device code: device code request failed with status 429 Too Many Requests",
+            );
+            child.emit("close", 1);
+            return;
+          }
+          (child.stderr as EventEmitter).emit("data", "status 429 Too Many Requests");
+          child.emit("close", 1);
+        });
+        return child;
+      },
+      warningLogger: () => undefined,
+    });
+
+    await expect(strategy.runLoginFlow(profilePath)).rejects.toThrow(
+      "Too many login attempts right now (429). Please wait a few minutes, then try connecting again.",
+    );
+  });
+
   it("checks credentials for valid, missing, and malformed auth.json", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");

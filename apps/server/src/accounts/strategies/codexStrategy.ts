@@ -29,6 +29,8 @@ const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
 const LOGIN_CANCELLED_MESSAGE = "Sign-in was cancelled. No account was added.";
 const LOGIN_EXPIRED_MESSAGE = "The sign-in code expired before completion. Please try connecting again.";
 const LOGIN_TIMEOUT_MESSAGE = "Sign-in timed out before completion. Please try connecting again.";
+const LOGIN_RATE_LIMITED_MESSAGE =
+  "Too many login attempts right now (429). Please wait a few minutes, then try connecting again.";
 const LOGIN_GENERIC_FAILURE_MESSAGE =
   "Couldn't complete Codex sign-in. Please try again and keep the login window open until completion.";
 
@@ -126,6 +128,9 @@ function toFriendlyLoginFailureMessage(exitCode: number | null, tail: string): s
   if (includesAny(normalized, ["timed out", "timeout"])) {
     return LOGIN_TIMEOUT_MESSAGE;
   }
+  if (includesAny(normalized, ["too many requests", "status 429", "rate limit", "rate_limit"])) {
+    return LOGIN_RATE_LIMITED_MESSAGE;
+  }
 
   return LOGIN_GENERIC_FAILURE_MESSAGE;
 }
@@ -175,7 +180,8 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         if (
           fallbackFailure === LOGIN_CANCELLED_MESSAGE ||
           fallbackFailure === LOGIN_EXPIRED_MESSAGE ||
-          fallbackFailure === LOGIN_TIMEOUT_MESSAGE
+          fallbackFailure === LOGIN_TIMEOUT_MESSAGE ||
+          fallbackFailure === LOGIN_RATE_LIMITED_MESSAGE
         ) {
           throw error;
         }
