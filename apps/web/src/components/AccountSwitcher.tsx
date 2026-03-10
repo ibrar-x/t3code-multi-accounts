@@ -147,16 +147,6 @@ export function AccountSwitcher({
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
   const primaryRemainingPercent = readPrimaryRemainingPercent(detailsAccount);
   const primaryResetLabel = formatResetLabel(detailsAccount);
-  const inlineDetails = detailsAccount
-    ? [
-        detailsAccount.codexProfile?.email,
-        detailsAccount.codexProfile?.type,
-        primaryRemainingPercent !== null ? `${primaryRemainingPercent}% remaining` : null,
-        primaryResetLabel ? `resets ${primaryResetLabel}` : null,
-      ]
-        .filter((entry): entry is string => Boolean(entry))
-        .join(" · ")
-    : null;
 
   useEffect(() => {
     if (!activeAccountId) {
@@ -315,7 +305,6 @@ export function AccountSwitcher({
 
   const triggerLabel =
     selectedValue === DEFAULT_OPTION_VALUE ? "Default account" : activeAccount?.name ?? "Default account";
-  const triggerDetails = inlineError ?? inlineDetails;
 
   if (variant === "inline") {
     return (
@@ -331,20 +320,31 @@ export function AccountSwitcher({
           }}
         >
           <MenuTrigger
-            render={<Button variant="ghost" size="xs" />}
-            className="text-muted-foreground/70 hover:text-foreground/80"
+            render={
+              <Button
+                size="sm"
+                variant="ghost"
+                className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+              />
+            }
             disabled={disabled || isConnecting}
             title="Switch account (Cmd+Shift+A)"
           >
-            <span className="max-w-[360px] truncate">
-              {triggerDetails ? `${triggerLabel} · ${triggerDetails}` : triggerLabel}
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate">{triggerLabel}</span>
+              <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
             </span>
-            <ChevronDownIcon />
           </MenuTrigger>
-          <MenuPopup align="end" side="top" className="w-80">
+          <MenuPopup align="end" side="top">
             <MenuSub>
               <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
-              <MenuSubPopup className="w-80 [--available-height:min(22rem,70vh)]">
+              <MenuSubPopup className="w-72 [--available-height:min(22rem,70vh)]">
+                {inlineError ? (
+                  <>
+                    <div className="px-2 py-1.5 text-xs text-destructive">{inlineError}</div>
+                    <MenuSeparator />
+                  </>
+                ) : null}
                 <MenuGroup>
                   <MenuRadioGroup
                     value={selectedValue}
