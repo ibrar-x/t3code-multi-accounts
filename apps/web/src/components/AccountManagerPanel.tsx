@@ -1,6 +1,7 @@
 import { type ProviderAccount, type ProviderKind } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toAccountActionErrorMessage } from "../accountErrorMessages";
 import { type AppSettings, useAppSettings } from "../appSettings";
 import { ensureNativeApi } from "../nativeApi";
 import { useStore } from "../store";
@@ -19,13 +20,6 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 
 const CODEX_ONLY_PROVIDER: ProviderKind = "codex";
 const DEFAULT_ACCOUNT_VALUE = "__default__";
-
-function toActionErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
-  }
-  return fallback;
-}
 
 function readPrimaryRemainingPercent(account: ProviderAccount | null): number | null {
   const primary = account?.codexProfile?.rateLimits?.primary;
@@ -136,7 +130,7 @@ export function AccountManagerPanel() {
       await refreshAccounts();
       setLoadError(null);
     } catch (error) {
-      setLoadError(toActionErrorMessage(error, "Unable to load accounts."));
+      setLoadError(toAccountActionErrorMessage(error, "Unable to load accounts."));
     } finally {
       setIsLoading(false);
     }
@@ -196,7 +190,7 @@ export function AccountManagerPanel() {
       setNewAccountName("");
       await refreshAccounts();
     } catch (error) {
-      setActionError(toActionErrorMessage(error, "Unable to connect account."));
+      setActionError(toAccountActionErrorMessage(error, "Unable to connect account."));
     } finally {
       setPendingAction(null);
     }
@@ -260,7 +254,7 @@ export function AccountManagerPanel() {
       });
       await refreshAccounts();
     } catch (error) {
-      setActionError(toActionErrorMessage(error, "Unable to check account status."));
+      setActionError(toAccountActionErrorMessage(error, "Unable to check account status."));
     } finally {
       setPendingAction(null);
     }
@@ -290,7 +284,7 @@ export function AccountManagerPanel() {
       commitMultiAccount(nextMultiAccount);
       await refreshAccounts();
     } catch (error) {
-      setActionError(toActionErrorMessage(error, "Unable to remove account."));
+      setActionError(toAccountActionErrorMessage(error, "Unable to remove account."));
     } finally {
       setPendingAction(null);
     }

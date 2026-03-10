@@ -26,6 +26,11 @@ const ANSI_SEQUENCE_PATTERN = new RegExp(
 );
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
 const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
+const LOGIN_CANCELLED_MESSAGE = "Sign-in was cancelled. No account was added.";
+const LOGIN_EXPIRED_MESSAGE = "The sign-in code expired before completion. Please try connecting again.";
+const LOGIN_TIMEOUT_MESSAGE = "Sign-in timed out before completion. Please try connecting again.";
+const LOGIN_GENERIC_FAILURE_MESSAGE =
+  "Couldn't complete Codex sign-in. Please try again and keep the login window open until completion.";
 
 function normalizeUrlCandidate(rawUrl: string): string | null {
   const cleaned = rawUrl
@@ -100,6 +105,31 @@ export function resolveCodexLoginUrl(rawOutput: string): string | null {
   return bestScore >= 2 ? bestUrl : null;
 }
 
+function includesAny(haystack: string, patterns: readonly string[]): boolean {
+  return patterns.some((pattern) => haystack.includes(pattern));
+}
+
+function toFriendlyLoginFailureMessage(exitCode: number | null, tail: string): string {
+  const normalized = tail.toLowerCase();
+  if (
+    exitCode === 130 ||
+    exitCode === 143 ||
+    includesAny(normalized, ["user canceled", "user cancelled", "cancelled", "canceled", "aborted"])
+  ) {
+    return LOGIN_CANCELLED_MESSAGE;
+  }
+
+  if (includesAny(normalized, ["expired", "expiration"])) {
+    return LOGIN_EXPIRED_MESSAGE;
+  }
+
+  if (includesAny(normalized, ["timed out", "timeout"])) {
+    return LOGIN_TIMEOUT_MESSAGE;
+  }
+
+  return LOGIN_GENERIC_FAILURE_MESSAGE;
+}
+
 export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   readonly providerKind = "codex" as const;
   private readonly spawnImpl: SpawnFn;
@@ -126,7 +156,9 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
           ? (error as NodeJS.ErrnoException).code
           : undefined;
       if (code === "ENOENT") {
-        throw new Error("Codex CLI not found. Install it with: npm install -g @openai/codex");
+        throw new Error("Codex CLI not found. Install it with: npm install -g @openai/codex", {
+          cause: error,
+        });
       }
 
       primaryFailure = error instanceof Error ? error.message : String(error);
@@ -140,9 +172,17 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         await this.runCodexLogin(profilePath, ["login"]);
       } catch (error) {
         const fallbackFailure = error instanceof Error ? error.message : String(error);
-        throw new Error(
-          `codex login fallback failed. Device auth error: ${primaryFailure}. Browser login error: ${fallbackFailure}`,
-        );
+        if (
+          fallbackFailure === LOGIN_CANCELLED_MESSAGE ||
+          fallbackFailure === LOGIN_EXPIRED_MESSAGE ||
+          fallbackFailure === LOGIN_TIMEOUT_MESSAGE
+        ) {
+          throw error;
+        }
+
+        throw new Error(LOGIN_GENERIC_FAILURE_MESSAGE, {
+          cause: error,
+        });
       }
     }
 
@@ -222,13 +262,14 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         }
         const tail = recentOutputLines.slice(-3).join(" | ");
         const commandLabel = `codex ${args.join(" ")}`;
-        reject(
-          new Error(
-            tail.length > 0
-              ? `${commandLabel} exited with code ${String(code)}: ${tail}`
-              : `${commandLabel} exited with code ${String(code)}`,
-          ),
-        );
+        if (tail.length > 0) {
+          this.warningLogger(
+            `[codexStrategy] ${commandLabel} exited with code ${String(code)}. Output: ${tail}`,
+          );
+        } else {
+          this.warningLogger(`[codexStrategy] ${commandLabel} exited with code ${String(code)}.`);
+        }
+        reject(new Error(toFriendlyLoginFailureMessage(code, tail)));
       });
     });
   }

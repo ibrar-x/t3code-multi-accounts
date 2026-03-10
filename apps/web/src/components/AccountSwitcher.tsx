@@ -2,6 +2,7 @@ import type { AccountCheckReason, ProviderAccount, ProviderKind } from "@t3tools
 import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toAccountActionErrorMessage } from "../accountErrorMessages";
 import { useAppSettings } from "../appSettings";
 import { readNativeApi } from "../nativeApi";
 import {
@@ -306,7 +307,7 @@ export function AccountSwitcher({
       });
       setIsOpen(false);
     } catch (error) {
-      setInlineError(error instanceof Error ? error.message : "Unable to connect account.");
+      setInlineError(toAccountActionErrorMessage(error, "Unable to connect account."));
     } finally {
       setIsConnecting(false);
     }
