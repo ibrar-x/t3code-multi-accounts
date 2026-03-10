@@ -49,7 +49,7 @@ describe("CodexCredentialStrategy", () => {
     expect(stat.isDirectory()).toBe(true);
   });
 
-  it("runs codex login --device-auth, opens browser url, and injects CODEX_HOME", async () => {
+  it("runs codex login, opens browser url, and injects CODEX_HOME", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
     const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
@@ -89,7 +89,7 @@ describe("CodexCredentialStrategy", () => {
 
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]?.command).toBe("codex");
-    expect(spawnCalls[0]?.args).toEqual(["login", "--device-auth"]);
+    expect(spawnCalls[0]?.args).toEqual(["login"]);
     expect(spawnCalls[0]?.options.stdio).toEqual(["ignore", "pipe", "pipe"]);
     expect(spawnCalls[0]?.options.env?.CODEX_HOME).toBe(profilePath);
     expect(openUrl).toHaveBeenCalledWith("https://auth.openai.com/device?code=abc123");
@@ -98,7 +98,7 @@ describe("CodexCredentialStrategy", () => {
     expect(mode).toBe(0o600);
   });
 
-  it("falls back to codex login when device auth fails", async () => {
+  it("falls back to codex login --device-auth when browser login fails", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
     const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
@@ -112,8 +112,8 @@ describe("CodexCredentialStrategy", () => {
         child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
 
         queueMicrotask(() => {
-          if (args.includes("--device-auth")) {
-            (child.stderr as EventEmitter).emit("data", "Device authorization unavailable");
+          if (args.length === 1 && args[0] === "login") {
+            (child.stderr as EventEmitter).emit("data", "Browser login unavailable");
             child.emit("close", 2);
             return;
           }
@@ -144,10 +144,10 @@ describe("CodexCredentialStrategy", () => {
     await strategy.runLoginFlow(profilePath);
 
     expect(spawnCalls).toHaveLength(2);
-    expect(spawnCalls[0]?.args).toEqual(["login", "--device-auth"]);
-    expect(spawnCalls[1]?.args).toEqual(["login"]);
+    expect(spawnCalls[0]?.args).toEqual(["login"]);
+    expect(spawnCalls[1]?.args).toEqual(["login", "--device-auth"]);
     expect(warningLogger).toHaveBeenCalledWith(
-      expect.stringContaining("Device-auth login failed; falling back to browser login"),
+      expect.stringContaining("Browser login failed; falling back to device-auth login"),
     );
   });
 
@@ -181,12 +181,12 @@ describe("CodexCredentialStrategy", () => {
         child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
         child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
-          if (args.includes("--device-auth")) {
-            (child.stderr as EventEmitter).emit("data", "Device auth failed");
+          if (args.length === 1 && args[0] === "login") {
+            (child.stderr as EventEmitter).emit("data", "Browser auth failed");
             child.emit("close", 2);
             return;
           }
-          (child.stderr as EventEmitter).emit("data", "Interactive auth failed");
+          (child.stderr as EventEmitter).emit("data", "Device auth failed");
           child.emit("close", 3);
         });
         return child;
@@ -207,8 +207,8 @@ describe("CodexCredentialStrategy", () => {
         child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
         child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
-          if (args.includes("--device-auth")) {
-            (child.stderr as EventEmitter).emit("data", "Device auth is unavailable");
+          if (args.length === 1 && args[0] === "login") {
+            (child.stderr as EventEmitter).emit("data", "Browser auth unavailable");
             child.emit("close", 2);
             return;
           }
@@ -233,7 +233,7 @@ describe("CodexCredentialStrategy", () => {
         child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
         child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
-          if (args.includes("--device-auth")) {
+          if (args.length === 1 && args[0] === "login") {
             (child.stderr as EventEmitter).emit(
               "data",
               "Error logging in with device code: device code request failed with status 429 Too Many Requests",
@@ -241,7 +241,7 @@ describe("CodexCredentialStrategy", () => {
             child.emit("close", 1);
             return;
           }
-          (child.stderr as EventEmitter).emit("data", "status 429 Too Many Requests");
+          (child.stderr as EventEmitter).emit("data", "device flow status 429 Too Many Requests");
           child.emit("close", 1);
         });
         return child;

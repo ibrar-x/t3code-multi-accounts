@@ -154,7 +154,7 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   async runLoginFlow(profilePath: string, _options?: CredentialLoginOptions): Promise<void> {
     let primaryFailure: string | null = null;
     try {
-      await this.runCodexLogin(profilePath, ["login", "--device-auth"]);
+      await this.runCodexLogin(profilePath, ["login"]);
     } catch (error) {
       const code =
         typeof error === "object" && error !== null && "code" in error
@@ -167,14 +167,22 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       }
 
       primaryFailure = error instanceof Error ? error.message : String(error);
+      if (
+        primaryFailure === LOGIN_CANCELLED_MESSAGE ||
+        primaryFailure === LOGIN_EXPIRED_MESSAGE ||
+        primaryFailure === LOGIN_TIMEOUT_MESSAGE ||
+        primaryFailure === LOGIN_RATE_LIMITED_MESSAGE
+      ) {
+        throw error;
+      }
       this.warningLogger(
-        `[codexStrategy] Device-auth login failed; falling back to browser login. Reason: ${primaryFailure}`,
+        `[codexStrategy] Browser login failed; falling back to device-auth login. Reason: ${primaryFailure}`,
       );
     }
 
     if (primaryFailure !== null) {
       try {
-        await this.runCodexLogin(profilePath, ["login"]);
+        await this.runCodexLogin(profilePath, ["login", "--device-auth"]);
       } catch (error) {
         const fallbackFailure = error instanceof Error ? error.message : String(error);
         if (

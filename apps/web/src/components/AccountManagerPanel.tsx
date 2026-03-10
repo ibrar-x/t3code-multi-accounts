@@ -346,8 +346,8 @@ export function AccountManagerPanel() {
         <div className="rounded-lg border border-border bg-background px-3 py-3">
           <p className="text-xs font-medium text-foreground">Connect Codex account</p>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Tries <code>codex login --device-auth</code>, then falls back to{" "}
-            <code>codex login</code> if needed. Credentials are stored in{" "}
+            Tries <code>codex login</code>, then falls back to{" "}
+            <code>codex login --device-auth</code> if needed. Credentials are stored in{" "}
             <code>~/.t3code/accounts</code>.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
