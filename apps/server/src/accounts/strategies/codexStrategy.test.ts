@@ -47,6 +47,15 @@ describe("CodexCredentialStrategy", () => {
     );
   });
 
+  it("strips terminal escape suffixes from captured auth URLs", () => {
+    expect(resolveCodexLoginUrl("https://auth.openai.com/codex/device%1B%5B0m")).toBe(
+      "https://auth.openai.com/codex/device",
+    );
+    expect(resolveCodexLoginUrl("https://auth.openai.com/codex/device\u001B[0m")).toBe(
+      "https://auth.openai.com/codex/device",
+    );
+  });
+
   it("creates profile directories idempotently", async () => {
     const profilePath = await makeTempDir();
     const target = path.join(profilePath, "nested");

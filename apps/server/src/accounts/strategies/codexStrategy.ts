@@ -34,11 +34,21 @@ const LOGIN_RATE_LIMITED_MESSAGE =
 const LOGIN_GENERIC_FAILURE_MESSAGE =
   "Couldn't complete Codex sign-in. Please try again and keep the login window open until completion.";
 
+function stripTerminalUrlNoise(rawUrl: string): string {
+  return rawUrl
+    .replace(/(?:\\u001b\[[0-9;]*m)+$/gi, "")
+    .replace(/(?:%1B(?:%5B|\[)[0-9;]*m)+$/gi, "")
+    .replace(/(?:%5B[0-9;]*m)+$/gi, "")
+    .replace(/(?:\[[0-9;]*m)+$/g, "");
+}
+
 function normalizeUrlCandidate(rawUrl: string): string | null {
-  const cleaned = rawUrl
-    .replace(ANSI_SEQUENCE_PATTERN, "")
-    .replace(/[),.;]+$/g, "")
-    .trim();
+  const cleaned = stripTerminalUrlNoise(
+    rawUrl
+      .replace(ANSI_SEQUENCE_PATTERN, "")
+      .replace(/[),.;]+$/g, "")
+      .trim(),
+  );
   if (cleaned.length === 0) {
     return null;
   }
