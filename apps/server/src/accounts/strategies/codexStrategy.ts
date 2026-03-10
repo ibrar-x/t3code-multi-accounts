@@ -59,8 +59,13 @@ function loginUrlScore(url: string): number {
     const hasPath = parsed.pathname !== "/" && parsed.pathname.length > 0;
     const hasQuery = parsed.search.length > 1;
     const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
 
     if (host === "auth.openai.com") {
+      // Prefer the exact browser-login authorize link emitted by `codex login`.
+      if (path.startsWith("/oauth/authorize")) {
+        return 7;
+      }
       return hasPath || hasQuery ? 5 : 1;
     }
 
@@ -99,7 +104,8 @@ export function resolveCodexLoginUrl(rawOutput: string): string | null {
   let bestScore = 0;
   for (const candidate of candidates) {
     const score = loginUrlScore(candidate);
-    if (score <= bestScore) continue;
+    if (score < bestScore) continue;
+    if (score === bestScore && bestUrl !== null && candidate.length <= bestUrl.length) continue;
     bestScore = score;
     bestUrl = candidate;
   }
