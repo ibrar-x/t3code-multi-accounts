@@ -108,6 +108,7 @@ function SettingsRouteView() {
   const [keybindingsDraft, setKeybindingsDraft] = useState("");
   const [keybindingsDialogError, setKeybindingsDialogError] = useState<string | null>(null);
   const keybindingsRequestVersionRef = useRef(0);
+  const keybindingsDraftDirtyRef = useRef(false);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -135,10 +136,13 @@ function SettingsRouteView() {
   const openKeybindingsEditor = useCallback(() => {
     setKeybindingsDialogError(null);
     setIsKeybindingsDialogOpen(true);
-    setIsKeybindingsLoading(true);
-    if (serverConfigQuery.data?.keybindings) {
-      setKeybindingsDraft(`${JSON.stringify(serverConfigQuery.data.keybindings, null, 2)}\n`);
-    }
+    keybindingsDraftDirtyRef.current = false;
+    const fallbackDraft = serverConfigQuery.data?.keybindings
+      ? `${JSON.stringify(serverConfigQuery.data.keybindings, null, 2)}\n`
+      : "";
+    const hasFallbackDraft = fallbackDraft.length > 0;
+    setKeybindingsDraft(fallbackDraft);
+    setIsKeybindingsLoading(!hasFallbackDraft);
     const requestVersion = ++keybindingsRequestVersionRef.current;
     const api = ensureNativeApi();
     void api.server
@@ -147,15 +151,24 @@ function SettingsRouteView() {
         if (requestVersion !== keybindingsRequestVersionRef.current) {
           return;
         }
-        setKeybindingsDraft(result.contents);
+        if (!keybindingsDraftDirtyRef.current) {
+          setKeybindingsDraft(result.contents);
+        }
+        setKeybindingsDialogError(null);
       })
       .catch((error) => {
         if (requestVersion !== keybindingsRequestVersionRef.current) {
           return;
         }
-        setKeybindingsDialogError(
-          error instanceof Error ? error.message : "Unable to load keybindings config.",
-        );
+        if (!hasFallbackDraft) {
+          setKeybindingsDialogError(
+            error instanceof Error ? error.message : "Unable to load keybindings config.",
+          );
+          return;
+        }
+
+        // Keep the editor usable with fallback data when background refresh fails.
+        setKeybindingsDialogError(null);
       })
       .finally(() => {
         if (requestVersion !== keybindingsRequestVersionRef.current) {
@@ -690,24 +703,33 @@ function SettingsRouteView() {
           closeKeybindingsEditor();
         }}
       >
-        <DialogPopup className="max-w-3xl">
+        <DialogPopup className="max-h-[90vh] max-w-3xl">
           <DialogHeader>
             <DialogTitle>Edit keybindings JSON</DialogTitle>
             <DialogDescription>
               Modify <code>keybindings.json</code> directly. Use a JSON array of keybinding rules.
             </DialogDescription>
           </DialogHeader>
-          <DialogPanel className="space-y-3">
+          <DialogPanel className="min-h-0 space-y-3" scrollFade={false}>
             <p className="text-xs text-muted-foreground">
               {keybindingsConfigPath ?? "Resolving keybindings path..."}
             </p>
             <Textarea
               value={keybindingsDraft}
-              onChange={(event) => setKeybindingsDraft(event.target.value)}
-              className="h-[360px] w-full font-mono text-xs"
+              onChange={(event) => {
+                keybindingsDraftDirtyRef.current = true;
+                setKeybindingsDraft(event.target.value);
+              }}
+              className="w-full overflow-hidden font-mono text-xs"
               spellCheck={false}
               disabled={isKeybindingsLoading || isKeybindingsSaving}
               aria-label="Keybindings JSON"
+              style={{
+                height: "360px",
+                minHeight: "220px",
+                maxHeight: "60vh",
+                resize: "vertical",
+              }}
               placeholder='[\n  { "key": "mod+b", "command": "sidebar.project.toggle" }\n]'
             />
             {keybindingsDialogError ? (
