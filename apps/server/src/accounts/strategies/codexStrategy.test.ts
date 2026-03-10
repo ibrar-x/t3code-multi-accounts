@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CodexCredentialStrategy } from "./codexStrategy.ts";
+import { CodexCredentialStrategy, resolveCodexLoginUrl } from "./codexStrategy.ts";
 
 const tempDirs: Array<string> = [];
 
@@ -21,6 +21,22 @@ afterEach(async () => {
 });
 
 describe("CodexCredentialStrategy", () => {
+  it("resolves full auth urls and ignores bare auth host urls", () => {
+    expect(
+      resolveCodexLoginUrl("Visit https://auth.openai.com/device?code=abc123 to continue"),
+    ).toBe("https://auth.openai.com/device?code=abc123");
+    expect(resolveCodexLoginUrl("Visit https://auth.openai.com")).toBeNull();
+  });
+
+  it("extracts urls wrapped in OSC-8 terminal hyperlink sequences", () => {
+    const osc8 = [
+      "\u001B]8;;https://auth.openai.com/device?code=abc123\u0007",
+      "Open login",
+      "\u001B]8;;\u0007",
+    ].join("");
+    expect(resolveCodexLoginUrl(osc8)).toBe("https://auth.openai.com/device?code=abc123");
+  });
+
   it("creates profile directories idempotently", async () => {
     const profilePath = await makeTempDir();
     const target = path.join(profilePath, "nested");

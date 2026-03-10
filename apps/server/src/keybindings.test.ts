@@ -167,6 +167,36 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(makeKeybindingsLayer())),
   );
 
+  it.effect("reads persisted keybindings config text", () =>
+    Effect.gen(function* () {
+      const keybindings = yield* Keybindings;
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const encoded = yield* keybindings.readConfigText;
+      const decoded = yield* Schema.decodeUnknownEffect(KeybindingsConfigJson)(encoded);
+      assert.deepEqual(decoded, DEFAULT_KEYBINDINGS);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
+  it.effect("replaces persisted keybindings config text", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig;
+      const replacement: readonly KeybindingRule[] = [
+        { key: "mod+shift+b", command: "sidebar.project.toggle" },
+        { key: "mod+j", command: "terminal.toggle" },
+      ];
+
+      const encoded = yield* Schema.encodeEffect(KeybindingsConfigJson)(replacement);
+      yield* Effect.gen(function* () {
+        const keybindings = yield* Keybindings;
+        const configState = yield* keybindings.replaceConfigText(encoded);
+        assert.isTrue(configState.keybindings.some((entry) => entry.command === "terminal.toggle"));
+      });
+
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepEqual(persisted, replacement);
+    }).pipe(Effect.provide(makeKeybindingsLayer())),
+  );
+
   it.effect("uses defaults in runtime when config is malformed without overriding file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

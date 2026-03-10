@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
@@ -15,12 +15,21 @@ import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { ensureNativeApi } from "../nativeApi";
-import { preferredTerminalEditor } from "../terminal-links";
 import { AccountManagerPanel } from "../components/AccountManagerPanel";
 import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "../components/ui/dialog";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
+import { Textarea } from "../components/ui/textarea";
 import { SETTINGS_SURFACE_MODE } from "../settingsPresentation";
 import { SidebarInset } from "~/components/ui/sidebar";
 
@@ -91,9 +100,13 @@ function patchCustomModels(provider: ProviderKind, models: string[]) {
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
+  const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
-  const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
+  const [isKeybindingsDialogOpen, setIsKeybindingsDialogOpen] = useState(false);
+  const [isKeybindingsLoading, setIsKeybindingsLoading] = useState(false);
+  const [isKeybindingsSaving, setIsKeybindingsSaving] = useState(false);
+  const [keybindingsDraft, setKeybindingsDraft] = useState("");
+  const [keybindingsDialogError, setKeybindingsDialogError] = useState<string | null>(null);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -111,22 +124,45 @@ function SettingsRouteView() {
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const isModalSurface = SETTINGS_SURFACE_MODE === "modal";
 
-  const openKeybindingsFile = useCallback(() => {
-    if (!keybindingsConfigPath) return;
-    setOpenKeybindingsError(null);
-    setIsOpeningKeybindings(true);
+  const openKeybindingsEditor = useCallback(() => {
+    setKeybindingsDialogError(null);
+    setIsKeybindingsDialogOpen(true);
+    setIsKeybindingsLoading(true);
     const api = ensureNativeApi();
-    void api.shell
-      .openInEditor(keybindingsConfigPath, preferredTerminalEditor())
+    void api.server
+      .getKeybindingsConfig()
+      .then((result) => {
+        setKeybindingsDraft(result.contents);
+      })
       .catch((error) => {
-        setOpenKeybindingsError(
-          error instanceof Error ? error.message : "Unable to open keybindings file.",
+        setKeybindingsDialogError(
+          error instanceof Error ? error.message : "Unable to load keybindings config.",
         );
       })
       .finally(() => {
-        setIsOpeningKeybindings(false);
+        setIsKeybindingsLoading(false);
       });
-  }, [keybindingsConfigPath]);
+  }, []);
+
+  const saveKeybindingsEditor = useCallback(() => {
+    setKeybindingsDialogError(null);
+    setIsKeybindingsSaving(true);
+    const api = ensureNativeApi();
+    void api.server
+      .setKeybindingsConfig({ contents: keybindingsDraft })
+      .then(async () => {
+        await queryClient.invalidateQueries({ queryKey: serverConfigQueryOptions().queryKey });
+        setIsKeybindingsDialogOpen(false);
+      })
+      .catch((error) => {
+        setKeybindingsDialogError(
+          error instanceof Error ? error.message : "Unable to save keybindings config.",
+        );
+      })
+      .finally(() => {
+        setIsKeybindingsSaving(false);
+      });
+  }, [keybindingsDraft, queryClient]);
 
   const addCustomModel = useCallback((provider: ProviderKind) => {
     const customModelInput = customModelInputByProvider[provider];
@@ -547,8 +583,7 @@ function SettingsRouteView() {
               <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Keybindings</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Open the persisted <code>keybindings.json</code> file to edit advanced bindings
-                  directly.
+                  Edit persisted <code>keybindings.json</code> directly in the app.
                 </p>
               </div>
 
@@ -563,18 +598,18 @@ function SettingsRouteView() {
                   <Button
                     size="xs"
                     variant="outline"
-                    disabled={!keybindingsConfigPath || isOpeningKeybindings}
-                    onClick={openKeybindingsFile}
+                    disabled={isKeybindingsLoading}
+                    onClick={openKeybindingsEditor}
                   >
-                    {isOpeningKeybindings ? "Opening..." : "Open keybindings.json"}
+                    {isKeybindingsLoading ? "Loading..." : "Edit keybindings JSON"}
                   </Button>
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                  Opens in your preferred editor selection.
+                  Add or update bindings as JSON array entries.
                 </p>
-                {openKeybindingsError ? (
-                  <p className="text-xs text-destructive">{openKeybindingsError}</p>
+                {keybindingsDialogError ? (
+                  <p className="text-xs text-destructive">{keybindingsDialogError}</p>
                 ) : null}
               </div>
             </section>
@@ -624,6 +659,50 @@ function SettingsRouteView() {
           </div>
         </div>
       </div>
+      <Dialog open={isKeybindingsDialogOpen} onOpenChange={setIsKeybindingsDialogOpen}>
+        <DialogPopup className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit keybindings JSON</DialogTitle>
+            <DialogDescription>
+              Modify <code>keybindings.json</code> directly. Use a JSON array of keybinding rules.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogPanel className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              {keybindingsConfigPath ?? "Resolving keybindings path..."}
+            </p>
+            <Textarea
+              value={keybindingsDraft}
+              onChange={(event) => setKeybindingsDraft(event.target.value)}
+              className="h-[360px] w-full font-mono text-xs"
+              spellCheck={false}
+              disabled={isKeybindingsLoading || isKeybindingsSaving}
+              aria-label="Keybindings JSON"
+              placeholder='[\n  { "key": "mod+b", "command": "sidebar.project.toggle" }\n]'
+            />
+            {keybindingsDialogError ? (
+              <p className="text-xs text-destructive">{keybindingsDialogError}</p>
+            ) : null}
+          </DialogPanel>
+          <DialogFooter>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isKeybindingsSaving}
+              onClick={() => setIsKeybindingsDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={isKeybindingsLoading || isKeybindingsSaving}
+              onClick={saveKeybindingsEditor}
+            >
+              {isKeybindingsSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
     </SidebarInset>
   );
 }

@@ -30,7 +30,13 @@ import type {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
-import type { ServerUpsertKeybindingInput, ServerUpsertKeybindingResult } from "./server";
+import type {
+  ServerGetKeybindingsConfigResult,
+  ServerSetKeybindingsConfigInput,
+  ServerSetKeybindingsConfigResult,
+  ServerUpsertKeybindingInput,
+  ServerUpsertKeybindingResult,
+} from "./server";
 import type {
   ClientOrchestrationCommand,
   OrchestrationGetFullThreadDiffInput,
@@ -148,6 +154,10 @@ export interface NativeApi {
   server: {
     getConfig: () => Promise<ServerConfig>;
     upsertKeybinding: (input: ServerUpsertKeybindingInput) => Promise<ServerUpsertKeybindingResult>;
+    getKeybindingsConfig: () => Promise<ServerGetKeybindingsConfigResult>;
+    setKeybindingsConfig: (
+      input: ServerSetKeybindingsConfigInput,
+    ) => Promise<ServerSetKeybindingsConfigResult>;
   };
   accounts: {
     list: (input: AccountListRequest) => Promise<AccountListResponse>;

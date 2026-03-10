@@ -12,12 +12,11 @@ import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { APP_DISPLAY_NAME } from "../branding";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
-import { serverConfigQueryOptions, serverQueryKeys } from "../lib/serverReactQuery";
+import { serverQueryKeys } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { preferredTerminalEditor } from "../terminal-links";
 import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { onServerConfigUpdated, onServerWelcome } from "../wsNativeApi";
 import { providerQueryKeys } from "../lib/providerReactQuery";
@@ -259,21 +258,9 @@ function EventRouter() {
         title: "Invalid keybindings configuration",
         description: issue.message,
         actionProps: {
-          children: "Open keybindings.json",
+          children: "Open settings",
           onClick: () => {
-            void queryClient
-              .ensureQueryData(serverConfigQueryOptions())
-              .then((config) =>
-                api.shell.openInEditor(config.keybindingsConfigPath, preferredTerminalEditor()),
-              )
-              .catch((error) => {
-                toastManager.add({
-                  type: "error",
-                  title: "Unable to open keybindings file",
-                  description:
-                    error instanceof Error ? error.message : "Unknown error opening file.",
-                });
-              });
+            void navigate({ to: "/settings" });
           },
         },
       });

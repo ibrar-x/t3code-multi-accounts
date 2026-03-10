@@ -64,6 +64,25 @@ export const ServerUpsertKeybindingResult = Schema.Struct({
 });
 export type ServerUpsertKeybindingResult = typeof ServerUpsertKeybindingResult.Type;
 
+export const ServerGetKeybindingsConfigResult = Schema.Struct({
+  contents: Schema.String,
+  keybindings: ResolvedKeybindingsConfig,
+  issues: ServerConfigIssues,
+});
+export type ServerGetKeybindingsConfigResult = typeof ServerGetKeybindingsConfigResult.Type;
+
+export const ServerSetKeybindingsConfigInput = Schema.Struct({
+  contents: Schema.String,
+});
+export type ServerSetKeybindingsConfigInput = typeof ServerSetKeybindingsConfigInput.Type;
+
+export const ServerSetKeybindingsConfigResult = Schema.Struct({
+  contents: Schema.String,
+  keybindings: ResolvedKeybindingsConfig,
+  issues: ServerConfigIssues,
+});
+export type ServerSetKeybindingsConfigResult = typeof ServerSetKeybindingsConfigResult.Type;
+
 export const ServerConfigUpdatedPayload = Schema.Struct({
   issues: ServerConfigIssues,
   providers: ServerProviderStatuses,

@@ -76,6 +76,7 @@ function compile(bindings: TestBinding[]): ResolvedKeybindingsConfig {
 }
 
 const DEFAULT_BINDINGS = compile([
+  { shortcut: modShortcut("b"), command: "sidebar.project.toggle" },
   { shortcut: modShortcut("j"), command: "terminal.toggle" },
   {
     shortcut: modShortcut("d"),
@@ -235,6 +236,10 @@ describe("shortcutLabelForCommand", () => {
   });
 
   it("returns labels for non-terminal commands", () => {
+    assert.strictEqual(
+      shortcutLabelForCommand(DEFAULT_BINDINGS, "sidebar.project.toggle", "MacIntel"),
+      "⌘B",
+    );
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "chat.new", "MacIntel"), "⇧⌘O");
     assert.strictEqual(shortcutLabelForCommand(DEFAULT_BINDINGS, "diff.toggle", "Linux"), "Ctrl+D");
     assert.strictEqual(

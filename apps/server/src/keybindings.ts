@@ -61,6 +61,7 @@ type WhenToken =
   | { type: "rparen" };
 
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
+  { key: "mod+b", command: "sidebar.project.toggle" },
   { key: "mod+j", command: "terminal.toggle" },
   { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
   { key: "mod+n", command: "terminal.new", when: "terminalFocus" },
@@ -480,6 +481,11 @@ export interface KeybindingsShape {
   readonly loadConfigState: Effect.Effect<KeybindingsConfigState, KeybindingsConfigError>;
 
   /**
+   * Read the persisted keybindings JSON text.
+   */
+  readonly readConfigText: Effect.Effect<string, KeybindingsConfigError>;
+
+  /**
    * Stream keybindings config change events.
    */
   readonly changes: Stream.Stream<KeybindingsChangeEvent>;
@@ -493,6 +499,14 @@ export interface KeybindingsShape {
   readonly upsertKeybindingRule: (
     rule: KeybindingRule,
   ) => Effect.Effect<ResolvedKeybindingsConfig, KeybindingsConfigError>;
+
+  /**
+   * Replace the persisted keybindings config using JSON text and return the
+   * resulting compiled runtime state plus issues.
+   */
+  readonly replaceConfigText: (
+    contents: string,
+  ) => Effect.Effect<KeybindingsConfigState, KeybindingsConfigError>;
 }
 
 /**
@@ -533,6 +547,15 @@ const makeKeybindings = Effect.gen(function* () {
           cause,
         }),
     ),
+  );
+
+  const readConfigText = upsertSemaphore.withPermits(1)(
+    Effect.gen(function* () {
+      if (!(yield* readConfigExists)) {
+        yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
+      }
+      return yield* readRawConfig;
+    }),
   );
 
   const loadWritableCustomKeybindingsConfig = Effect.fn(function* (): Effect.fn.Return<
@@ -835,6 +858,27 @@ const makeKeybindings = Effect.gen(function* () {
           });
           yield* emitChange([]);
           return nextResolved;
+        }),
+      ),
+    readConfigText,
+    replaceConfigText: (contents) =>
+      upsertSemaphore.withPermits(1)(
+        Effect.gen(function* () {
+          const parsed = yield* Schema.decodeUnknownEffect(KeybindingsConfigJson)(contents).pipe(
+            Effect.mapError(
+              (cause) =>
+                new KeybindingsConfigError({
+                  configPath: keybindingsConfigPath,
+                  detail: "expected JSON array of keybinding rules",
+                  cause,
+                }),
+            ),
+          );
+          yield* writeConfigAtomically(parsed);
+          yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
+          const configState = yield* loadConfigStateFromCacheOrDisk;
+          yield* emitChange(configState.issues);
+          return configState;
         }),
       ),
   } satisfies KeybindingsShape;

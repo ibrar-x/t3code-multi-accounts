@@ -349,6 +349,48 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("uses desktop bridge folder picker when available", async () => {
+    const pickFolder = vi.fn().mockResolvedValue("/tmp/from-desktop");
+    Object.defineProperty(getWindowForTest(), "desktopBridge", {
+      configurable: true,
+      writable: true,
+      value: { pickFolder },
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await expect(api.dialogs.pickFolder()).resolves.toBe("/tmp/from-desktop");
+    expect(pickFolder).toHaveBeenCalledTimes(1);
+    expect(requestMock).not.toHaveBeenCalledWith(WS_METHODS.serverPickFolder);
+  });
+
+  it("falls back to server folder picker in browser mode", async () => {
+    requestMock.mockResolvedValue("/tmp/from-server");
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await expect(api.dialogs.pickFolder()).resolves.toBe("/tmp/from-server");
+    expect(requestMock).toHaveBeenCalledWith(WS_METHODS.serverPickFolder);
+  });
+
+  it("forwards keybindings config rpc calls to server websocket methods", async () => {
+    requestMock.mockResolvedValue({
+      contents: "[]",
+      keybindings: [],
+      issues: [],
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.server.getKeybindingsConfig();
+    await api.server.setKeybindingsConfig({ contents: "[]" });
+
+    expect(requestMock).toHaveBeenNthCalledWith(1, WS_METHODS.serverGetKeybindingsConfig);
+    expect(requestMock).toHaveBeenNthCalledWith(2, WS_METHODS.serverSetKeybindingsConfig, {
+      contents: "[]",
+    });
+  });
+
   it("forwards account rpc calls to the websocket account methods", async () => {
     requestMock.mockResolvedValue({});
     const { createWsNativeApi } = await import("./wsNativeApi");

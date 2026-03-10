@@ -771,6 +771,57 @@ describe("WebSocket Server", () => {
     expectAvailableEditors((response.result as { availableEditors: unknown }).availableEditors);
   });
 
+  it("responds to server.getKeybindingsConfig", async () => {
+    const stateDir = makeTempDir("t3code-state-get-keybindings-config-");
+    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    fs.writeFileSync(
+      keybindingsPath,
+      JSON.stringify([{ key: "mod+b", command: "sidebar.project.toggle" }], null, 2),
+      "utf8",
+    );
+
+    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.serverGetKeybindingsConfig);
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual({
+      contents: expect.stringContaining("sidebar.project.toggle"),
+      keybindings: expect.any(Array),
+      issues: [],
+    });
+  });
+
+  it("replaces keybindings config through server.setKeybindingsConfig", async () => {
+    const stateDir = makeTempDir("t3code-state-set-keybindings-config-");
+    const keybindingsPath = path.join(stateDir, "keybindings.json");
+    fs.writeFileSync(keybindingsPath, "[]", "utf8");
+
+    server = await createTestServer({ cwd: "/my/workspace", stateDir });
+    const addr = server.address();
+    const port = typeof addr === "object" && addr !== null ? addr.port : 0;
+    const ws = await connectWs(port);
+    connections.push(ws);
+    await waitForMessage(ws);
+
+    const response = await sendRequest(ws, WS_METHODS.serverSetKeybindingsConfig, {
+      contents: JSON.stringify([{ key: "mod+b", command: "sidebar.project.toggle" }]),
+    });
+    expect(response.error).toBeUndefined();
+    expect(response.result).toEqual({
+      contents: expect.stringContaining("sidebar.project.toggle"),
+      keybindings: expect.any(Array),
+      issues: [],
+    });
+
+    const persisted = JSON.parse(fs.readFileSync(keybindingsPath, "utf8")) as KeybindingsConfig;
+    expect(persisted).toEqual([{ key: "mod+b", command: "sidebar.project.toggle" }]);
+  });
+
   it("bootstraps default keybindings file when missing", async () => {
     const stateDir = makeTempDir("t3code-state-bootstrap-keybindings-");
     const keybindingsPath = path.join(stateDir, "keybindings.json");
@@ -1383,7 +1434,7 @@ describe("WebSocket Server", () => {
     };
     terminalManager.emitEvent(manualEvent);
 
-    const push = (await waitForMessage(ws)) as WsPush;
+    const push = await waitForPush(ws, WS_CHANNELS.terminalEvent);
     expect(push.type).toBe("push");
     expect(push.channel).toBe(WS_CHANNELS.terminalEvent);
     expect((push.data as TerminalEvent).type).toBe("output");

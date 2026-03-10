@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
@@ -51,6 +52,7 @@ function normalizeAccountName(name: string): string {
 }
 
 const loginInProgress = new Set<string>();
+const DEFAULT_CODEX_ACCOUNT_ID = "acc_codex_default_system";
 
 async function resolveAccount(
   store: AccountStore,
@@ -104,7 +106,41 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
 
   return {
     async listAccounts() {
-      return store.listAccounts();
+      const persistedAccounts = await store.listAccounts();
+      if (!supportsProvider("codex")) {
+        return persistedAccounts;
+      }
+
+      const defaultProfilePath = path.resolve(
+        process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"),
+      );
+      const defaultProfile = await readCodexProfile(defaultProfilePath).catch(() => undefined);
+      if (!defaultProfile) {
+        return persistedAccounts;
+      }
+
+      const codexStatus = await resolveStrategy("codex")
+        .checkCredentials(defaultProfilePath)
+        .catch(() => ({ valid: false, reason: "missing" as const }));
+
+      const defaultName =
+        defaultProfile.name?.trim() || defaultProfile.email?.trim() || "Default system credentials";
+      const defaultAccount: ProviderAccount = {
+        id: DEFAULT_CODEX_ACCOUNT_ID,
+        providerKind: "codex",
+        name: defaultName,
+        profilePath: defaultProfilePath,
+        isDefault: true,
+        ...(codexStatus.valid ? { credentialStatus: "ok" as const } : { credentialStatus: codexStatus.reason }),
+        codexProfile: defaultProfile,
+        createdAt: "1970-01-01T00:00:00.000Z",
+        lastUsedAt: null,
+      };
+
+      return [
+        ...persistedAccounts.filter((account) => account.id !== DEFAULT_CODEX_ACCOUNT_ID),
+        defaultAccount,
+      ];
     },
     async getAccountById(accountId) {
       return store.getAccountById(accountId);
