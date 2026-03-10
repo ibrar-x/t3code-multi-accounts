@@ -158,6 +158,8 @@ function trimNonEmpty(value: string): string | null {
 }
 
 async function pickFolderFromServer(): Promise<string | null> {
+  const pickerTimeoutMs = 25_000;
+
   if (process.platform === "darwin") {
     const result = await runProcess(
       "osascript",
@@ -170,9 +172,12 @@ async function pickFolderFromServer(): Promise<string | null> {
       {
         allowNonZeroExit: true,
         maxBufferBytes: 64 * 1024,
-        timeoutMs: 120_000,
+        timeoutMs: pickerTimeoutMs,
       },
     );
+    if (result.timedOut) {
+      throw new Error("Folder picker timed out.");
+    }
     if (result.code === 0) {
       return trimNonEmpty(result.stdout);
     }
@@ -195,8 +200,11 @@ async function pickFolderFromServer(): Promise<string | null> {
     const result = await runProcess("powershell", ["-NoProfile", "-Command", command], {
       allowNonZeroExit: true,
       maxBufferBytes: 64 * 1024,
-      timeoutMs: 120_000,
+      timeoutMs: pickerTimeoutMs,
     });
+    if (result.timedOut) {
+      throw new Error("Folder picker timed out.");
+    }
     if (result.code === 0) {
       return trimNonEmpty(result.stdout);
     }
@@ -215,8 +223,11 @@ async function pickFolderFromServer(): Promise<string | null> {
       const result = await runProcess(candidate.command, candidate.args, {
         allowNonZeroExit: true,
         maxBufferBytes: 64 * 1024,
-        timeoutMs: 120_000,
+        timeoutMs: pickerTimeoutMs,
       });
+      if (result.timedOut) {
+        throw new Error("Folder picker timed out.");
+      }
       if (result.code === 0) {
         return trimNonEmpty(result.stdout);
       }
@@ -1007,10 +1018,19 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
       case WS_METHODS.serverPickFolder: {
         const selectedPath = yield* Effect.tryPromise({
           try: () => pickFolderFromServer(),
-          catch: (cause) =>
-            new RouteRequestError({
-              message: `Failed to pick folder: ${String(cause)}`,
-            }),
+          catch: (cause) => {
+            const raw =
+              cause instanceof Error && cause.message.trim().length > 0
+                ? cause.message
+                : String(cause);
+            const lower = raw.toLowerCase();
+            const message = lower.includes("timed out")
+              ? "Folder picker took too long to respond. Try again or enter the path manually."
+              : lower.includes("command not found")
+                ? "Folder picker is unavailable on this machine. Enter the path manually."
+                : "Unable to open folder picker. Enter the path manually and try again.";
+            return new RouteRequestError({ message });
+          },
         });
         return selectedPath;
       }

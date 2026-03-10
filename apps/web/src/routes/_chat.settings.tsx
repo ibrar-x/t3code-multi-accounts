@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { type ProviderKind } from "@t3tools/contracts";
 import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { ZapIcon } from "lucide-react";
@@ -107,6 +107,7 @@ function SettingsRouteView() {
   const [isKeybindingsSaving, setIsKeybindingsSaving] = useState(false);
   const [keybindingsDraft, setKeybindingsDraft] = useState("");
   const [keybindingsDialogError, setKeybindingsDialogError] = useState<string | null>(null);
+  const keybindingsRequestVersionRef = useRef(0);
   const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
     Record<ProviderKind, string>
   >({
@@ -124,25 +125,45 @@ function SettingsRouteView() {
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const isModalSurface = SETTINGS_SURFACE_MODE === "modal";
 
+  const closeKeybindingsEditor = useCallback(() => {
+    keybindingsRequestVersionRef.current += 1;
+    setIsKeybindingsDialogOpen(false);
+    setIsKeybindingsLoading(false);
+    setIsKeybindingsSaving(false);
+  }, []);
+
   const openKeybindingsEditor = useCallback(() => {
     setKeybindingsDialogError(null);
     setIsKeybindingsDialogOpen(true);
     setIsKeybindingsLoading(true);
+    if (serverConfigQuery.data?.keybindings) {
+      setKeybindingsDraft(`${JSON.stringify(serverConfigQuery.data.keybindings, null, 2)}\n`);
+    }
+    const requestVersion = ++keybindingsRequestVersionRef.current;
     const api = ensureNativeApi();
     void api.server
       .getKeybindingsConfig()
       .then((result) => {
+        if (requestVersion !== keybindingsRequestVersionRef.current) {
+          return;
+        }
         setKeybindingsDraft(result.contents);
       })
       .catch((error) => {
+        if (requestVersion !== keybindingsRequestVersionRef.current) {
+          return;
+        }
         setKeybindingsDialogError(
           error instanceof Error ? error.message : "Unable to load keybindings config.",
         );
       })
       .finally(() => {
+        if (requestVersion !== keybindingsRequestVersionRef.current) {
+          return;
+        }
         setIsKeybindingsLoading(false);
       });
-  }, []);
+  }, [serverConfigQuery.data?.keybindings]);
 
   const saveKeybindingsEditor = useCallback(() => {
     setKeybindingsDialogError(null);
@@ -152,7 +173,7 @@ function SettingsRouteView() {
       .setKeybindingsConfig({ contents: keybindingsDraft })
       .then(async () => {
         await queryClient.invalidateQueries({ queryKey: serverConfigQueryOptions().queryKey });
-        setIsKeybindingsDialogOpen(false);
+        closeKeybindingsEditor();
       })
       .catch((error) => {
         setKeybindingsDialogError(
@@ -162,7 +183,7 @@ function SettingsRouteView() {
       .finally(() => {
         setIsKeybindingsSaving(false);
       });
-  }, [keybindingsDraft, queryClient]);
+  }, [closeKeybindingsEditor, keybindingsDraft, queryClient]);
 
   const addCustomModel = useCallback((provider: ProviderKind) => {
     const customModelInput = customModelInputByProvider[provider];
@@ -659,7 +680,16 @@ function SettingsRouteView() {
           </div>
         </div>
       </div>
-      <Dialog open={isKeybindingsDialogOpen} onOpenChange={setIsKeybindingsDialogOpen}>
+      <Dialog
+        open={isKeybindingsDialogOpen}
+        onOpenChange={(open) => {
+          if (open) {
+            setIsKeybindingsDialogOpen(true);
+            return;
+          }
+          closeKeybindingsEditor();
+        }}
+      >
         <DialogPopup className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Edit keybindings JSON</DialogTitle>
@@ -689,7 +719,7 @@ function SettingsRouteView() {
               size="sm"
               variant="outline"
               disabled={isKeybindingsSaving}
-              onClick={() => setIsKeybindingsDialogOpen(false)}
+              onClick={closeKeybindingsEditor}
             >
               Cancel
             </Button>

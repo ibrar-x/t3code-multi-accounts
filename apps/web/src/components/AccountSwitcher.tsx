@@ -18,6 +18,16 @@ import {
 } from "./AccountSwitcher.logic";
 import { Button } from "./ui/button";
 import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogPanel,
+  DialogPopup,
+  DialogTitle,
+} from "./ui/dialog";
+import { Input } from "./ui/input";
+import {
   Menu,
   MenuGroup,
   MenuItem,
@@ -128,6 +138,8 @@ export function AccountSwitcher({
   const { settings, updateSettings } = useAppSettings();
   const hasHydratedAccountsRef = useRef(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [isConnectDialogOpen, setIsConnectDialogOpen] = useState(false);
+  const [newAccountName, setNewAccountName] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [defaultProviderAccount, setDefaultProviderAccount] = useState<ProviderAccount | null>(null);
@@ -254,14 +266,15 @@ export function AccountSwitcher({
     [disabled, provider, providerAccounts, settings.multiAccount, updateSettings],
   );
 
-  const connectNewAccount = useCallback(async () => {
+  const submitConnectAccount = useCallback(async () => {
     if (provider !== "codex") {
       setInlineError(`Connecting accounts for ${PROVIDER_LABELS[provider]} is not supported yet.`);
       return;
     }
 
-    const name = window.prompt("Enter a Codex account name (for example: Work)")?.trim() ?? "";
+    const name = newAccountName.trim();
     if (!name) {
+      setInlineError("Enter an account name.");
       return;
     }
 
@@ -295,13 +308,21 @@ export function AccountSwitcher({
           activeAccountByProvider: nextActive,
         },
       });
+      setNewAccountName("");
+      setIsConnectDialogOpen(false);
       setIsOpen(false);
     } catch (error) {
       setInlineError(toAccountActionErrorMessage(error, "Unable to connect account."));
     } finally {
       setIsConnecting(false);
     }
-  }, [provider, settings.multiAccount.accounts, settings.multiAccount.activeAccountByProvider, updateSettings]);
+  }, [
+    newAccountName,
+    provider,
+    settings.multiAccount.accounts,
+    settings.multiAccount.activeAccountByProvider,
+    updateSettings,
+  ]);
 
   const triggerLabel =
     selectedValue === DEFAULT_OPTION_VALUE ? "Default account" : activeAccount?.name ?? "Default account";
@@ -372,7 +393,10 @@ export function AccountSwitcher({
                 <MenuItem
                   disabled={isConnecting}
                   onClick={() => {
-                    void connectNewAccount();
+                    setInlineError(null);
+                    setNewAccountName("");
+                    setIsOpen(false);
+                    setIsConnectDialogOpen(true);
                   }}
                 >
                   {isConnecting ? "Connecting account..." : "+ Connect account"}
@@ -382,6 +406,46 @@ export function AccountSwitcher({
             </MenuSub>
           </MenuPopup>
         </Menu>
+        <Dialog open={isConnectDialogOpen} onOpenChange={setIsConnectDialogOpen}>
+          <DialogPopup className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Connect Codex account</DialogTitle>
+              <DialogDescription>
+                Enter a label for this account. Sign-in starts after you confirm.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogPanel className="space-y-3">
+              <Input
+                value={newAccountName}
+                onChange={(event) => setNewAccountName(event.target.value)}
+                placeholder="Account name (for example: Work)"
+                autoFocus
+                aria-label="Codex account name"
+                disabled={isConnecting}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void submitConnectAccount();
+                  }
+                }}
+              />
+              {inlineError ? <p className="text-xs text-destructive">{inlineError}</p> : null}
+            </DialogPanel>
+            <DialogFooter>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={isConnecting}
+                onClick={() => setIsConnectDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" disabled={isConnecting} onClick={() => void submitConnectAccount()}>
+                {isConnecting ? "Connecting..." : "Connect"}
+              </Button>
+            </DialogFooter>
+          </DialogPopup>
+        </Dialog>
       </div>
     );
   }

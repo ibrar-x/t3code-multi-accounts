@@ -18,6 +18,7 @@ const showContextMenuFallbackMock = vi.fn<
     position?: { x: number; y: number },
   ) => Promise<T | null>
 >();
+const showConfirmDialogFallbackMock = vi.fn<(message: string) => Promise<boolean>>();
 const channelListeners = new Map<string, Set<(data: unknown) => void>>();
 const subscribeMock = vi.fn<(channel: string, listener: (data: unknown) => void) => () => void>(
   (channel, listener) => {
@@ -44,6 +45,10 @@ vi.mock("./wsTransport", () => {
 
 vi.mock("./contextMenuFallback", () => ({
   showContextMenuFallback: showContextMenuFallbackMock,
+}));
+
+vi.mock("./confirmDialogFallbackStore", () => ({
+  showConfirmDialogFallback: showConfirmDialogFallbackMock,
 }));
 
 function emitPush(channel: string, data: unknown): void {
@@ -78,6 +83,7 @@ beforeEach(() => {
   vi.resetModules();
   requestMock.mockReset();
   showContextMenuFallbackMock.mockReset();
+  showConfirmDialogFallbackMock.mockReset();
   subscribeMock.mockClear();
   channelListeners.clear();
   Reflect.deleteProperty(getWindowForTest(), "desktopBridge");
@@ -371,6 +377,15 @@ describe("wsNativeApi", () => {
     const api = createWsNativeApi();
     await expect(api.dialogs.pickFolder()).resolves.toBe("/tmp/from-server");
     expect(requestMock).toHaveBeenCalledWith(WS_METHODS.serverPickFolder);
+  });
+
+  it("uses in-app confirm fallback in browser mode", async () => {
+    showConfirmDialogFallbackMock.mockResolvedValueOnce(true);
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await expect(api.dialogs.confirm("Delete project?")).resolves.toBe(true);
+    expect(showConfirmDialogFallbackMock).toHaveBeenCalledWith("Delete project?");
   });
 
   it("forwards keybindings config rpc calls to server websocket methods", async () => {
