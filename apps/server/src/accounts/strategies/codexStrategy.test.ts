@@ -195,7 +195,33 @@ describe("CodexCredentialStrategy", () => {
     });
 
     await expect(strategy.runLoginFlow(profilePath)).rejects.toThrow(
-      "codex login fallback failed",
+      "Couldn't complete Codex sign-in",
+    );
+  });
+
+  it("returns a cancellation message when login is cancelled", async () => {
+    const profilePath = await makeTempDir();
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (_command, args) => {
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          if (args.includes("--device-auth")) {
+            (child.stderr as EventEmitter).emit("data", "Device auth is unavailable");
+            child.emit("close", 2);
+            return;
+          }
+          (child.stderr as EventEmitter).emit("data", "User canceled authentication");
+          child.emit("close", 130);
+        });
+        return child;
+      },
+      warningLogger: () => undefined,
+    });
+
+    await expect(strategy.runLoginFlow(profilePath)).rejects.toThrow(
+      "Sign-in was cancelled. No account was added.",
     );
   });
 
