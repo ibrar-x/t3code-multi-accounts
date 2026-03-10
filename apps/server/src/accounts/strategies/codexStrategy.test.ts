@@ -70,6 +70,20 @@ describe("CodexCredentialStrategy", () => {
     );
   });
 
+  it("extracts oauth authorize URL from real codex login output shape", () => {
+    const output = [
+      "Starting local login server on http://localhost:1455.",
+      "If your browser did not open, navigate to this URL to authenticate:",
+      "",
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid%20profile%20email%20offline_access&code_challenge=r8raZ0ryBaXfi6LT6vL212zyvkCMZga9vUa8LRD47B4&code_challenge_method=S256&id_token_add_organizations=true&codex_cli_simplified_flow=true&state=QZ6lUOnEgcHKX5KNRynlNHRV1jnXTTVfLye0z0FscyE&originator=codex_cli_rs",
+      "",
+      "On a remote or headless machine? Use `codex login --device-auth` instead.",
+    ].join("\n");
+    expect(resolveCodexLoginUrl(output)).toBe(
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid%20profile%20email%20offline_access&code_challenge=r8raZ0ryBaXfi6LT6vL212zyvkCMZga9vUa8LRD47B4&code_challenge_method=S256&id_token_add_organizations=true&codex_cli_simplified_flow=true&state=QZ6lUOnEgcHKX5KNRynlNHRV1jnXTTVfLye0z0FscyE&originator=codex_cli_rs",
+    );
+  });
+
   it("creates profile directories idempotently", async () => {
     const profilePath = await makeTempDir();
     const target = path.join(profilePath, "nested");
@@ -146,6 +160,46 @@ describe("CodexCredentialStrategy", () => {
           (child.stdout as EventEmitter).emit(
             "data",
             "Fallback URL: https://auth.openai.com/codex/device%1B%5B0m\n",
+          );
+          void fs
+            .writeFile(
+              authPath,
+              JSON.stringify({ access_token: "token", refresh_token: "refresh" }),
+              "utf8",
+            )
+            .then(() => child.emit("close", 0))
+            .catch((error) => child.emit("error", error));
+        });
+        return child;
+      },
+      openUrl,
+      warningLogger: () => undefined,
+    });
+
+    await strategy.runLoginFlow(profilePath);
+
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-open URLs in --device-auth mode", async () => {
+    const profilePath = await makeTempDir();
+    const authPath = path.join(profilePath, "auth.json");
+    const openUrl = vi.fn(async () => undefined);
+
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (_command, args) => {
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          if (args.length === 1 && args[0] === "login") {
+            (child.stderr as EventEmitter).emit("data", "Browser login unavailable");
+            child.emit("close", 2);
+            return;
+          }
+          (child.stdout as EventEmitter).emit(
+            "data",
+            "https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc&state=xyz\n",
           );
           void fs
             .writeFile(
