@@ -2,6 +2,7 @@ import type { AccountCheckReason, ProviderAccount, ProviderKind } from "@t3tools
 import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { defaultAccountDisplayLabel } from "../accountDisplay";
 import { toAccountActionErrorMessage } from "../accountErrorMessages";
 import { useAppSettings } from "../appSettings";
 import { readNativeApi } from "../nativeApi";
@@ -325,7 +326,9 @@ export function AccountSwitcher({
   ]);
 
   const triggerLabel =
-    selectedValue === DEFAULT_OPTION_VALUE ? "Default account" : activeAccount?.name ?? "Default account";
+    selectedValue === DEFAULT_OPTION_VALUE
+      ? defaultAccountDisplayLabel(defaultProviderAccount)
+      : activeAccount?.name ?? defaultAccountDisplayLabel(defaultProviderAccount);
 
   if (variant === "inline") {
     return (
@@ -359,7 +362,7 @@ export function AccountSwitcher({
           <MenuPopup align="end" side="top">
             <MenuSub>
               <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
-              <MenuSubPopup className="w-72 [--available-height:min(22rem,70vh)]">
+              <MenuSubPopup className="w-56 [--available-height:min(22rem,70vh)]">
                 {inlineError ? (
                   <>
                     <div className="px-2 py-1.5 text-xs text-destructive">{inlineError}</div>
@@ -376,10 +379,7 @@ export function AccountSwitcher({
                   >
                     <MenuRadioItem value={DEFAULT_OPTION_VALUE}>
                       <span className="truncate">
-                        Default (system credentials)
-                        {detailsAccount?.codexProfile?.type
-                          ? ` · ${detailsAccount.codexProfile.type}`
-                          : ""}
+                        {defaultAccountDisplayLabel(defaultProviderAccount)}
                       </span>
                     </MenuRadioItem>
                     {providerAccounts.map((account) => (
@@ -477,7 +477,9 @@ export function AccountSwitcher({
         disabled={disabled || providerAccounts.length === 0}
         aria-label={`Active ${PROVIDER_LABELS[provider]} account`}
       >
-        <option value={DEFAULT_OPTION_VALUE}>Default (system credentials)</option>
+        <option value={DEFAULT_OPTION_VALUE}>
+          {defaultAccountDisplayLabel(defaultProviderAccount)}
+        </option>
         {providerAccounts.map((account) => (
           <option key={account.id} value={account.id}>
             {accountLabel(account)}

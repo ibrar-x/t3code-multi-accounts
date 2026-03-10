@@ -37,6 +37,16 @@ describe("CodexCredentialStrategy", () => {
     expect(resolveCodexLoginUrl(osc8)).toBe("https://auth.openai.com/device?code=abc123");
   });
 
+  it("prefers oauth authorize URLs when multiple auth URLs are present", () => {
+    const output = [
+      "Use this as fallback: https://auth.openai.com/codex/device",
+      "Primary URL: https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc",
+    ].join("\n");
+    expect(resolveCodexLoginUrl(output)).toBe(
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc",
+    );
+  });
+
   it("creates profile directories idempotently", async () => {
     const profilePath = await makeTempDir();
     const target = path.join(profilePath, "nested");

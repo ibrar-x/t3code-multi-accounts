@@ -1,6 +1,7 @@
 import { type ProviderAccount, type ProviderKind } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { defaultAccountDisplayLabel } from "../accountDisplay";
 import { toAccountActionErrorMessage } from "../accountErrorMessages";
 import { type AppSettings, useAppSettings } from "../appSettings";
 import { ensureNativeApi } from "../nativeApi";
@@ -375,7 +376,9 @@ export function AccountManagerPanel() {
             disabled={providerAccounts.length === 0 || hasActiveSession}
             aria-label="Active Codex account"
           >
-            <option value={DEFAULT_ACCOUNT_VALUE}>Default (system credentials)</option>
+            <option value={DEFAULT_ACCOUNT_VALUE}>
+              {defaultAccountDisplayLabel(defaultProviderAccount)}
+            </option>
             {providerAccounts.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
@@ -416,7 +419,9 @@ export function AccountManagerPanel() {
                 onChange={(event) => setSelectedAccountId(event.target.value)}
               >
                 {defaultProviderAccount ? (
-                  <option value={DEFAULT_ACCOUNT_VALUE}>Default (system credentials)</option>
+                  <option value={DEFAULT_ACCOUNT_VALUE}>
+                    {defaultAccountDisplayLabel(defaultProviderAccount)}
+                  </option>
                 ) : null}
                 {providerAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
