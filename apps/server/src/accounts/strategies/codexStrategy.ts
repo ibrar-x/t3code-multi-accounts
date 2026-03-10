@@ -117,8 +117,46 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   }
 
   async runLoginFlow(profilePath: string, _options?: CredentialLoginOptions): Promise<void> {
-    await new Promise<void>((resolve, reject) => {
-      const proc = this.spawnImpl("codex", ["login", "--device-auth"], {
+    let primaryFailure: string | null = null;
+    try {
+      await this.runCodexLogin(profilePath, ["login", "--device-auth"]);
+    } catch (error) {
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? (error as NodeJS.ErrnoException).code
+          : undefined;
+      if (code === "ENOENT") {
+        throw new Error("Codex CLI not found. Install it with: npm install -g @openai/codex");
+      }
+
+      primaryFailure = error instanceof Error ? error.message : String(error);
+      this.warningLogger(
+        `[codexStrategy] Device-auth login failed; falling back to browser login. Reason: ${primaryFailure}`,
+      );
+    }
+
+    if (primaryFailure !== null) {
+      try {
+        await this.runCodexLogin(profilePath, ["login"]);
+      } catch (error) {
+        const fallbackFailure = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `codex login fallback failed. Device auth error: ${primaryFailure}. Browser login error: ${fallbackFailure}`,
+        );
+      }
+    }
+
+    const authPath = path.join(profilePath, "auth.json");
+    try {
+      await fs.chmod(authPath, 0o600);
+    } catch {
+      this.warningLogger(`[codexStrategy] Could not chmod ${authPath} - file may not exist`);
+    }
+  }
+
+  private runCodexLogin(profilePath: string, args: readonly string[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const proc = this.spawnImpl("codex", args, {
         env: { ...process.env, CODEX_HOME: profilePath },
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -174,14 +212,6 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       });
 
       proc.on("error", (error) => {
-        const code =
-          typeof error === "object" && error !== null && "code" in error
-            ? (error as NodeJS.ErrnoException).code
-            : undefined;
-        if (code === "ENOENT") {
-          reject(new Error("Codex CLI not found. Install it with: npm install -g @openai/codex"));
-          return;
-        }
         reject(error);
       });
 
@@ -191,22 +221,16 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
           return;
         }
         const tail = recentOutputLines.slice(-3).join(" | ");
+        const commandLabel = `codex ${args.join(" ")}`;
         reject(
           new Error(
             tail.length > 0
-              ? `codex login exited with code ${String(code)}: ${tail}`
-              : `codex login exited with code ${String(code)}`,
+              ? `${commandLabel} exited with code ${String(code)}: ${tail}`
+              : `${commandLabel} exited with code ${String(code)}`,
           ),
         );
       });
     });
-
-    const authPath = path.join(profilePath, "auth.json");
-    try {
-      await fs.chmod(authPath, 0o600);
-    } catch {
-      this.warningLogger(`[codexStrategy] Could not chmod ${authPath} - file may not exist`);
-    }
   }
 
   getSessionEnv(profilePath: string): Record<string, string> {
