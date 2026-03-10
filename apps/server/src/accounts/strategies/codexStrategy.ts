@@ -26,6 +26,8 @@ const ANSI_SEQUENCE_PATTERN = new RegExp(
 );
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
 const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
+const OAUTH_AUTHORIZE_SCORE = 7;
+const NON_PREFERRED_LOGIN_URL_OPEN_DELAY_MS = 300;
 const LOGIN_CANCELLED_MESSAGE = "Sign-in was cancelled. No account was added.";
 const LOGIN_EXPIRED_MESSAGE = "The sign-in code expired before completion. Please try connecting again.";
 const LOGIN_TIMEOUT_MESSAGE = "Sign-in timed out before completion. Please try connecting again.";
@@ -63,6 +65,40 @@ function normalizeUrlCandidate(rawUrl: string): string | null {
   }
 }
 
+function parseWrappedOauthAuthorizeUrl(rawOutput: string): string | null {
+  const marker = "https://auth.openai.com/oauth/authorize?";
+  const sanitized = rawOutput.replace(ANSI_SEQUENCE_PATTERN, "");
+  const start = sanitized.indexOf(marker);
+  if (start < 0) {
+    return null;
+  }
+
+  const lines = sanitized.slice(start).split(/\r?\n/);
+  if (lines.length === 0) {
+    return null;
+  }
+
+  let candidate = lines[0]?.trim() ?? "";
+  for (const line of lines.slice(1)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) break;
+    if (
+      trimmed.startsWith("On a remote") ||
+      trimmed.startsWith("If your browser") ||
+      trimmed.startsWith("Follow these steps") ||
+      /^[0-9]+\.\s/.test(trimmed)
+    ) {
+      break;
+    }
+    if (!/^[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+$/.test(trimmed)) {
+      break;
+    }
+    candidate += trimmed;
+  }
+
+  return normalizeUrlCandidate(candidate);
+}
+
 function loginUrlScore(url: string): number {
   try {
     const parsed = new URL(url);
@@ -74,7 +110,7 @@ function loginUrlScore(url: string): number {
     if (host === "auth.openai.com") {
       // Prefer the exact browser-login authorize link emitted by `codex login`.
       if (path.startsWith("/oauth/authorize")) {
-        return 7;
+        return OAUTH_AUTHORIZE_SCORE;
       }
       return hasPath || hasQuery ? 5 : 1;
     }
@@ -92,6 +128,12 @@ function loginUrlScore(url: string): number {
 export function resolveCodexLoginUrl(rawOutput: string): string | null {
   const candidates: string[] = [];
   const seen = new Set<string>();
+
+  const wrappedOauthCandidate = parseWrappedOauthAuthorizeUrl(rawOutput);
+  if (wrappedOauthCandidate) {
+    seen.add(wrappedOauthCandidate);
+    candidates.push(wrappedOauthCandidate);
+  }
 
   for (const match of rawOutput.matchAll(OSC8_URL_PATTERN)) {
     const normalized = normalizeUrlCandidate(match[1] ?? "");
@@ -233,6 +275,36 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       const recentOutputLines: string[] = [];
       let urlScanBuffer = "";
       let openedLoginUrl = false;
+      let pendingLoginUrl: string | null = null;
+      let deferredOpenTimer: NodeJS.Timeout | null = null;
+
+      const clearDeferredOpenTimer = () => {
+        if (deferredOpenTimer === null) {
+          return;
+        }
+        clearTimeout(deferredOpenTimer);
+        deferredOpenTimer = null;
+      };
+
+      const openResolvedLoginUrl = (url: string) => {
+        if (openedLoginUrl) {
+          return;
+        }
+        openedLoginUrl = true;
+        pendingLoginUrl = null;
+        clearDeferredOpenTimer();
+        Promise.resolve(this.openUrl(url)).catch((error) => {
+          const reason = error instanceof Error ? error.message : String(error);
+          this.warningLogger(`[codexStrategy] Failed to open login URL "${url}": ${reason}`);
+        });
+      };
+
+      const flushPendingLoginUrl = () => {
+        if (openedLoginUrl || !pendingLoginUrl) {
+          return;
+        }
+        openResolvedLoginUrl(pendingLoginUrl);
+      };
 
       const recordOutput = (rawChunk: string) => {
         const chunk = rawChunk.trim();
@@ -260,12 +332,19 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         if (!loginUrl) {
           return;
         }
+        const score = loginUrlScore(loginUrl);
+        if (score >= OAUTH_AUTHORIZE_SCORE) {
+          openResolvedLoginUrl(loginUrl);
+          return;
+        }
 
-        openedLoginUrl = true;
-        Promise.resolve(this.openUrl(loginUrl)).catch((error) => {
-          const reason = error instanceof Error ? error.message : String(error);
-          this.warningLogger(`[codexStrategy] Failed to open login URL "${loginUrl}": ${reason}`);
-        });
+        pendingLoginUrl = loginUrl;
+        if (deferredOpenTimer !== null) {
+          return;
+        }
+        deferredOpenTimer = setTimeout(() => {
+          flushPendingLoginUrl();
+        }, NON_PREFERRED_LOGIN_URL_OPEN_DELAY_MS);
       };
 
       proc.stdout?.setEncoding?.("utf8");
@@ -282,10 +361,13 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       });
 
       proc.on("error", (error) => {
+        clearDeferredOpenTimer();
         reject(error);
       });
 
       proc.on("close", (code) => {
+        clearDeferredOpenTimer();
+        flushPendingLoginUrl();
         if (code === 0) {
           resolve();
           return;

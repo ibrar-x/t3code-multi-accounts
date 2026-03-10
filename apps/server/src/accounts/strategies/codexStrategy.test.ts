@@ -56,6 +56,20 @@ describe("CodexCredentialStrategy", () => {
     );
   });
 
+  it("reconstructs wrapped oauth authorize URLs from multiline output", () => {
+    const wrapped = [
+      "If your browser did not open, navigate to this URL to authenticate:",
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_abc",
+      "&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid",
+      "&state=xyz&originator=codex_cli_rs",
+      "",
+      "On a remote or headless machine? Use `codex login --device-auth` instead.",
+    ].join("\n");
+    expect(resolveCodexLoginUrl(wrapped)).toBe(
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=app_abc&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&scope=openid&state=xyz&originator=codex_cli_rs",
+    );
+  });
+
   it("creates profile directories idempotently", async () => {
     const profilePath = await makeTempDir();
     const target = path.join(profilePath, "nested");
@@ -115,6 +129,49 @@ describe("CodexCredentialStrategy", () => {
 
     const mode = (await fs.stat(authPath)).mode & 0o777;
     expect(mode).toBe(0o600);
+  });
+
+  it("prefers oauth URL when lower-priority device URL appears first", async () => {
+    const profilePath = await makeTempDir();
+    const authPath = path.join(profilePath, "auth.json");
+    const openUrl = vi.fn(async () => undefined);
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (_command, _args) => {
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          (child.stdout as EventEmitter).emit(
+            "data",
+            "Fallback URL: https://auth.openai.com/codex/device%1B%5B0m\n",
+          );
+          setTimeout(() => {
+            (child.stdout as EventEmitter).emit(
+              "data",
+              "Primary URL: https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc&state=xyz\n",
+            );
+            void fs
+              .writeFile(
+                authPath,
+                JSON.stringify({ access_token: "token", refresh_token: "refresh" }),
+                "utf8",
+              )
+              .then(() => child.emit("close", 0))
+              .catch((error) => child.emit("error", error));
+          }, 20);
+        });
+        return child;
+      },
+      openUrl,
+      warningLogger: () => undefined,
+    });
+
+    await strategy.runLoginFlow(profilePath);
+
+    expect(openUrl).toHaveBeenCalledTimes(1);
+    expect(openUrl).toHaveBeenCalledWith(
+      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc&state=xyz",
+    );
   });
 
   it("falls back to codex login --device-auth when browser login fails", async () => {
