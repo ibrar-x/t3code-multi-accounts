@@ -75,6 +75,7 @@ import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
 import { accountManager } from "./accounts/accountManager.ts";
 import { getSupportedProviders } from "./accounts/strategies/registry.ts";
+import { runProcess } from "./processRunner";
 
 /**
  * ServerShape - Service API for server lifecycle control.
@@ -149,6 +150,91 @@ function websocketRawToString(raw: unknown): string | null {
     return chunks.join("");
   }
   return null;
+}
+
+function trimNonEmpty(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function pickFolderFromServer(): Promise<string | null> {
+  if (process.platform === "darwin") {
+    const result = await runProcess(
+      "osascript",
+      [
+        "-e",
+        'set selectedFolder to choose folder with prompt "Select a project folder"',
+        "-e",
+        "POSIX path of selectedFolder",
+      ],
+      {
+        allowNonZeroExit: true,
+        maxBufferBytes: 64 * 1024,
+        timeoutMs: 120_000,
+      },
+    );
+    if (result.code === 0) {
+      return trimNonEmpty(result.stdout);
+    }
+    const stderrLower = result.stderr.toLowerCase();
+    if (stderrLower.includes("user canceled") || stderrLower.includes("(-128)")) {
+      return null;
+    }
+    throw new Error(result.stderr.trim() || "Folder picker failed.");
+  }
+
+  if (process.platform === "win32") {
+    const command = [
+      "Add-Type -AssemblyName System.Windows.Forms;",
+      "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog;",
+      "$dialog.ShowNewFolderButton = $false;",
+      "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {",
+      "  [Console]::Out.Write($dialog.SelectedPath)",
+      "}",
+    ].join(" ");
+    const result = await runProcess("powershell", ["-NoProfile", "-Command", command], {
+      allowNonZeroExit: true,
+      maxBufferBytes: 64 * 1024,
+      timeoutMs: 120_000,
+    });
+    if (result.code === 0) {
+      return trimNonEmpty(result.stdout);
+    }
+    return null;
+  }
+
+  const linuxCandidates: ReadonlyArray<{
+    command: string;
+    args: ReadonlyArray<string>;
+  }> = [
+    { command: "zenity", args: ["--file-selection", "--directory"] },
+    { command: "kdialog", args: ["--getexistingdirectory", process.cwd()] },
+  ];
+  for (const candidate of linuxCandidates) {
+    try {
+      const result = await runProcess(candidate.command, candidate.args, {
+        allowNonZeroExit: true,
+        maxBufferBytes: 64 * 1024,
+        timeoutMs: 120_000,
+      });
+      if (result.code === 0) {
+        return trimNonEmpty(result.stdout);
+      }
+      if (result.code === 1) {
+        return null;
+      }
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message.toLowerCase().startsWith("command not found:")
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error("No supported folder picker is available on this platform.");
 }
 
 function toPosixRelativePath(input: string): string {
@@ -916,6 +1002,17 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           keybindings: configState.keybindings,
           issues: configState.issues,
         };
+      }
+
+      case WS_METHODS.serverPickFolder: {
+        const selectedPath = yield* Effect.tryPromise({
+          try: () => pickFolderFromServer(),
+          catch: (cause) =>
+            new RouteRequestError({
+              message: `Failed to pick folder: ${String(cause)}`,
+            }),
+        });
+        return selectedPath;
       }
 
       case WS_METHODS.accountsList: {

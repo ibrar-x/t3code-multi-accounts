@@ -76,6 +76,7 @@ export const WS_METHODS = {
   serverUpsertKeybinding: "server.upsertKeybinding",
   serverGetKeybindingsConfig: "server.getKeybindingsConfig",
   serverSetKeybindingsConfig: "server.setKeybindingsConfig",
+  serverPickFolder: "server.pickFolder",
 
   // Accounts methods
   accountsList: "accounts.list",
@@ -147,6 +148,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverUpsertKeybinding, KeybindingRule),
   tagRequestBody(WS_METHODS.serverGetKeybindingsConfig, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverSetKeybindingsConfig, ServerSetKeybindingsConfigInput),
+  tagRequestBody(WS_METHODS.serverPickFolder, Schema.Struct({})),
 
   // Accounts methods
   tagRequestBody(WS_METHODS.accountsList, AccountListRequest),

@@ -301,7 +301,7 @@ export default function Sidebar() {
   >(() => new Set());
   const renamingCommittedRef = useRef(false);
   const renamingInputRef = useRef<HTMLInputElement | null>(null);
-  const canPickFolder = typeof window.desktopBridge?.pickFolder === "function";
+  const canPickFolder = Boolean(readNativeApi());
   const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const pendingApprovalByThreadId = useMemo(() => {
     const map = new Map<ThreadId, boolean>();
@@ -537,8 +537,8 @@ export default function Sidebar() {
     if (!canPickFolder) {
       toastManager.add({
         type: "warning",
-        title: "Folder picker is desktop-only in browser mode",
-        description: "Enter the project path manually, or use the desktop app for native folder browsing.",
+        title: "Folder picker unavailable",
+        description: "Enter the project path manually.",
       });
       return;
     }
@@ -546,8 +546,13 @@ export default function Sidebar() {
     let pickedPath: string | null = null;
     try {
       pickedPath = await api.dialogs.pickFolder();
-    } catch {
-      // Ignore picker failures and leave the current thread selection unchanged.
+    } catch (error) {
+      toastManager.add({
+        type: "error",
+        title: "Unable to open folder picker",
+        description:
+          error instanceof Error ? error.message : "An error occurred while opening the folder picker.",
+      });
     }
     if (pickedPath) {
       await addProjectFromPath(pickedPath);
@@ -1331,7 +1336,7 @@ export default function Sidebar() {
               title={
                 canPickFolder
                   ? "Browse for folder"
-                  : "Desktop-only in browser mode. Enter the path manually."
+                  : "Folder picker unavailable. Enter the path manually."
               }
             >
               {isPickingFolder ? "Picking folder..." : "Browse for folder"}
