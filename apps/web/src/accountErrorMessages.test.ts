@@ -28,6 +28,16 @@ describe("toAccountActionErrorMessage", () => {
     expect(message).toBe("Sign-in was cancelled. No account was added.");
   });
 
+  it("maps 429/rate-limit errors to actionable guidance", () => {
+    const message = toAccountActionErrorMessage(
+      new Error(
+        "codex login exited with code 1: Error logging in with device code: device code request failed with status 429 Too Many Requests",
+      ),
+      "fallback",
+    );
+    expect(message).toContain("Too many login attempts right now (429)");
+  });
+
   it("falls back when no useful message is present", () => {
     expect(toAccountActionErrorMessage(new Error("   "), "fallback")).toBe("fallback");
     expect(toAccountActionErrorMessage("not-an-error", "fallback")).toBe("fallback");

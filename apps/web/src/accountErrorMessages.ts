@@ -39,6 +39,14 @@ export function toAccountActionErrorMessage(error: unknown, fallback: string): s
   if (normalized.includes("sign-in code expired")) {
     return "The sign-in code expired. Please start Connect account again.";
   }
+  if (
+    normalized.includes("too many requests") ||
+    normalized.includes("status 429") ||
+    normalized.includes("rate limit") ||
+    normalized.includes("rate_limit")
+  ) {
+    return "Too many login attempts right now (429). Please wait a few minutes, then try again.";
+  }
   if (normalized.includes("codex cli not found")) {
     return "Codex CLI is not installed. Install it with `npm install -g @openai/codex`, then try again.";
   }
