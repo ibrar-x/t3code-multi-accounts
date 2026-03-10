@@ -27,7 +27,6 @@ const ANSI_SEQUENCE_PATTERN = new RegExp(
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
 const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
 const OAUTH_AUTHORIZE_SCORE = 7;
-const NON_PREFERRED_LOGIN_URL_OPEN_DELAY_MS = 300;
 const LOGIN_CANCELLED_MESSAGE = "Sign-in was cancelled. No account was added.";
 const LOGIN_EXPIRED_MESSAGE = "The sign-in code expired before completion. Please try connecting again.";
 const LOGIN_TIMEOUT_MESSAGE = "Sign-in timed out before completion. Please try connecting again.";
@@ -122,6 +121,18 @@ function loginUrlScore(url: string): number {
     return hasPath || hasQuery ? 3 : 1;
   } catch {
     return 0;
+  }
+}
+
+function isOauthAuthorizeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname.toLowerCase() === "auth.openai.com" &&
+      parsed.pathname.toLowerCase().startsWith("/oauth/authorize")
+    );
+  } catch {
+    return false;
   }
 }
 
@@ -275,35 +286,16 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       const recentOutputLines: string[] = [];
       let urlScanBuffer = "";
       let openedLoginUrl = false;
-      let pendingLoginUrl: string | null = null;
-      let deferredOpenTimer: NodeJS.Timeout | null = null;
-
-      const clearDeferredOpenTimer = () => {
-        if (deferredOpenTimer === null) {
-          return;
-        }
-        clearTimeout(deferredOpenTimer);
-        deferredOpenTimer = null;
-      };
 
       const openResolvedLoginUrl = (url: string) => {
         if (openedLoginUrl) {
           return;
         }
         openedLoginUrl = true;
-        pendingLoginUrl = null;
-        clearDeferredOpenTimer();
         Promise.resolve(this.openUrl(url)).catch((error) => {
           const reason = error instanceof Error ? error.message : String(error);
           this.warningLogger(`[codexStrategy] Failed to open login URL "${url}": ${reason}`);
         });
-      };
-
-      const flushPendingLoginUrl = () => {
-        if (openedLoginUrl || !pendingLoginUrl) {
-          return;
-        }
-        openResolvedLoginUrl(pendingLoginUrl);
       };
 
       const recordOutput = (rawChunk: string) => {
@@ -333,18 +325,10 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
           return;
         }
         const score = loginUrlScore(loginUrl);
-        if (score >= OAUTH_AUTHORIZE_SCORE) {
-          openResolvedLoginUrl(loginUrl);
+        if (score < OAUTH_AUTHORIZE_SCORE || !isOauthAuthorizeUrl(loginUrl)) {
           return;
         }
-
-        pendingLoginUrl = loginUrl;
-        if (deferredOpenTimer !== null) {
-          return;
-        }
-        deferredOpenTimer = setTimeout(() => {
-          flushPendingLoginUrl();
-        }, NON_PREFERRED_LOGIN_URL_OPEN_DELAY_MS);
+        openResolvedLoginUrl(loginUrl);
       };
 
       proc.stdout?.setEncoding?.("utf8");
@@ -361,13 +345,10 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
       });
 
       proc.on("error", (error) => {
-        clearDeferredOpenTimer();
         reject(error);
       });
 
       proc.on("close", (code) => {
-        clearDeferredOpenTimer();
-        flushPendingLoginUrl();
         if (code === 0) {
           resolve();
           return;
