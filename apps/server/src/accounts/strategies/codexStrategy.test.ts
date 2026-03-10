@@ -98,6 +98,59 @@ describe("CodexCredentialStrategy", () => {
     expect(mode).toBe(0o600);
   });
 
+  it("falls back to codex login when device auth fails", async () => {
+    const profilePath = await makeTempDir();
+    const authPath = path.join(profilePath, "auth.json");
+    const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+    const warningLogger = vi.fn();
+
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (command, args, options) => {
+        spawnCalls.push({ command, args, options });
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+
+        queueMicrotask(() => {
+          if (args.includes("--device-auth")) {
+            (child.stderr as EventEmitter).emit("data", "Device authorization unavailable");
+            child.emit("close", 2);
+            return;
+          }
+
+          (child.stdout as EventEmitter).emit(
+            "data",
+            "Open this URL to authenticate: https://auth.openai.com/oauth/authorize?code=abc123\n",
+          );
+          void fs
+            .writeFile(
+              authPath,
+              JSON.stringify({ access_token: "token", refresh_token: "refresh" }),
+              "utf8",
+            )
+            .then(() => {
+              child.emit("close", 0);
+            })
+            .catch((error) => {
+              child.emit("error", error);
+            });
+        });
+
+        return child;
+      },
+      warningLogger,
+    });
+
+    await strategy.runLoginFlow(profilePath);
+
+    expect(spawnCalls).toHaveLength(2);
+    expect(spawnCalls[0]?.args).toEqual(["login", "--device-auth"]);
+    expect(spawnCalls[1]?.args).toEqual(["login"]);
+    expect(warningLogger).toHaveBeenCalledWith(
+      expect.stringContaining("Device-auth login failed; falling back to browser login"),
+    );
+  });
+
   it("returns a readable error when the codex binary is not installed", async () => {
     const profilePath = await makeTempDir();
     const strategy = new CodexCredentialStrategy({
@@ -123,13 +176,18 @@ describe("CodexCredentialStrategy", () => {
   it("fails when codex login exits non-zero", async () => {
     const profilePath = await makeTempDir();
     const strategy = new CodexCredentialStrategy({
-      spawnImpl: () => {
+      spawnImpl: (_command, args) => {
         const child = new EventEmitter() as ChildProcess;
         child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
         child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
         queueMicrotask(() => {
-          (child.stderr as EventEmitter).emit("data", "Authentication failed");
-          child.emit("close", 2);
+          if (args.includes("--device-auth")) {
+            (child.stderr as EventEmitter).emit("data", "Device auth failed");
+            child.emit("close", 2);
+            return;
+          }
+          (child.stderr as EventEmitter).emit("data", "Interactive auth failed");
+          child.emit("close", 3);
         });
         return child;
       },
@@ -137,7 +195,7 @@ describe("CodexCredentialStrategy", () => {
     });
 
     await expect(strategy.runLoginFlow(profilePath)).rejects.toThrow(
-      "codex login exited with code 2",
+      "codex login fallback failed",
     );
   });
 
