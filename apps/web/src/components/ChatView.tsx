@@ -800,6 +800,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? (sessionProvider ?? selectedProviderByThreadId ?? null)
     : null;
   const selectedProvider: ProviderKind = lockedProvider ?? selectedProviderByThreadId ?? "codex";
+  const selectedAccountIdForProvider =
+    settings.multiAccount.activeAccountByProvider[selectedProvider] ?? null;
   const baseThreadModel = resolveModelSlugForProvider(
     selectedProvider,
     activeThread?.model ?? activeProject?.model ?? getDefaultModel(selectedProvider),
@@ -2624,6 +2626,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           text: trimmed || IMAGE_ONLY_BOOTSTRAP_PROMPT,
           attachments: turnAttachments,
         },
+        accountId: selectedAccountIdForProvider,
         model: selectedModel || undefined,
         serviceTier: selectedServiceTier,
         ...(selectedModelOptionsForDispatch
@@ -2901,6 +2904,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             text: trimmed,
             attachments: [],
           },
+          accountId: selectedAccountIdForProvider,
           provider: selectedProvider,
           model: selectedModel || undefined,
           ...(selectedModelOptionsForDispatch
@@ -2934,6 +2938,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       persistThreadSettingsForNextTurn,
       resetSendPhase,
       runtimeMode,
+      selectedAccountIdForProvider,
       selectedModel,
       selectedModelOptionsForDispatch,
       selectedProvider,
@@ -3001,6 +3006,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             text: implementationPrompt,
             attachments: [],
           },
+          accountId: selectedAccountIdForProvider,
           provider: selectedProvider,
           model: selectedModel || undefined,
           ...(selectedModelOptionsForDispatch
@@ -3053,6 +3059,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     navigate,
     resetSendPhase,
     runtimeMode,
+    selectedAccountIdForProvider,
     selectedModel,
     selectedModelOptionsForDispatch,
     selectedProvider,

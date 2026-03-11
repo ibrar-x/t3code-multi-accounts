@@ -159,6 +159,7 @@ describe("decider project scripts", () => {
             text: "hello",
             attachments: [],
           },
+          accountId: "acc_codex_pro",
           provider: "codex",
           model: "gpt-5.3-codex",
           modelOptions: {
@@ -189,6 +190,7 @@ describe("decider project scripts", () => {
     expect(turnStartEvent.payload).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       messageId: asMessageId("message-user-1"),
+      accountId: "acc_codex_pro",
       provider: "codex",
       model: "gpt-5.3-codex",
       modelOptions: {

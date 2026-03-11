@@ -87,6 +87,7 @@ describe("ProviderCommandReactor", () => {
     const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
     let nextSessionIndex = 1;
     const runtimeSessions: Array<ProviderSession> = [];
+    const accountByThread = new Map<ThreadId, string | null>();
     const startSession = vi.fn((_: unknown, input: unknown) => {
       const sessionIndex = nextSessionIndex++;
       const provider =
@@ -111,6 +112,13 @@ describe("ProviderCommandReactor", () => {
         typeof input.threadId === "string"
           ? ThreadId.makeUnsafe(input.threadId)
           : ThreadId.makeUnsafe(`thread-${sessionIndex}`);
+      const accountId =
+        typeof input === "object" &&
+        input !== null &&
+        "accountId" in input &&
+        typeof input.accountId === "string"
+          ? input.accountId
+          : null;
       const session: ProviderSession = {
         provider,
         status: "ready" as const,
@@ -128,6 +136,7 @@ describe("ProviderCommandReactor", () => {
         updatedAt: now,
       };
       runtimeSessions.push(session);
+      accountByThread.set(threadId, accountId);
       return Effect.succeed(session);
     });
     const sendTurn = vi.fn((_: unknown) =>
@@ -152,6 +161,7 @@ describe("ProviderCommandReactor", () => {
         if (index >= 0) {
           runtimeSessions.splice(index, 1);
         }
+        accountByThread.delete(threadId);
       }),
     );
     const renameBranch = vi.fn((input: unknown) =>
@@ -188,6 +198,8 @@ describe("ProviderCommandReactor", () => {
           sessionModelSwitch: provider === "codex" ? "in-session" : "in-session",
         }),
       rollbackConversation: () => unsupported(),
+      getThreadAccountId: (threadId) =>
+        Effect.succeed(accountByThread.get(threadId) ?? null),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };
 
@@ -290,6 +302,35 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("forwards selected accountId to provider session start", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-account-forward"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-account-forward"),
+          role: "user",
+          text: "use selected account",
+          attachments: [],
+        },
+        accountId: "acc_codex_pro",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      accountId: "acc_codex_pro",
+    });
   });
 
   it("forwards codex model options through session start and turn send", async () => {
@@ -511,6 +552,60 @@ describe("ProviderCommandReactor", () => {
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     expect(thread?.session?.threadId).toBe("thread-1");
     expect(thread?.session?.runtimeMode).toBe("approval-required");
+  });
+
+  it("restarts provider session when selected account changes", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-account-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-account-1"),
+          role: "user",
+          text: "first account",
+          attachments: [],
+        },
+        accountId: "acc_codex_plus",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-account-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-account-2"),
+          role: "user",
+          text: "second account",
+          attachments: [],
+        },
+        accountId: "acc_codex_pro",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+
+    expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+      accountId: "acc_codex_plus",
+    });
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      accountId: "acc_codex_pro",
+    });
   });
 
   it("does not stop the active session when restart fails before rebind", async () => {

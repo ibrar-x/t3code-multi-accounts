@@ -16,6 +16,7 @@ import {
 } from "../Services/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "./ProviderService.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
+import { accountManager } from "../../accounts/accountManager.ts";
 
 const NOW = "2026-03-08T00:00:00.000Z";
 
@@ -198,6 +199,36 @@ describe("ProviderService account resolution", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('accountId "acc_missing" not found'),
     );
+  });
+
+  it("resolves explicit accountId from account manager when accounts are not provided", async () => {
+    const fixture = makeFixture();
+    const managedAccount = makeAccount({
+      id: "acc_managed",
+      profilePath: "/tmp/.t3code/accounts/acc_managed",
+    });
+    const getByIdSpy = vi
+      .spyOn(accountManager, "getAccountById")
+      .mockResolvedValue(managedAccount);
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const providerService = yield* ProviderService;
+          yield* providerService.startSession(asThreadId("thread-managed"), {
+            threadId: asThreadId("thread-managed"),
+            provider: "codex",
+            accountId: managedAccount.id,
+            runtimeMode: "full-access",
+          });
+        }).pipe(Effect.provide(fixture.layer), Effect.scoped),
+      );
+
+      expect(getByIdSpy).toHaveBeenCalledWith(managedAccount.id);
+      const forwarded = fixture.startSession.mock.calls[0]?.[0];
+      expect(forwarded?.env).toEqual({ CODEX_HOME: managedAccount.profilePath });
+    } finally {
+      getByIdSpy.mockRestore();
+    }
   });
 
   it("keeps account fallback deterministic across reconnect-style repeated starts", async () => {

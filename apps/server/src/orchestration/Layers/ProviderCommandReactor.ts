@@ -203,6 +203,7 @@ const make = Effect.gen(function* () {
       readonly model?: string;
       readonly modelOptions?: ProviderModelOptions;
       readonly serviceTier?: ProviderServiceTier | null;
+      readonly accountId?: string | null;
     },
   ) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -216,6 +217,8 @@ const make = Effect.gen(function* () {
       thread.session?.providerName === "codex" ? thread.session.providerName : undefined;
     const preferredProvider: ProviderKind | undefined = options?.provider ?? currentProvider;
     const desiredModel = options?.model ?? thread.model;
+    const hasRequestedAccountSelection = options?.accountId !== undefined;
+    const requestedAccountId = options?.accountId ?? null;
     const effectiveCwd = resolveThreadWorkspaceCwd({
       thread,
       projects: readModel.projects,
@@ -229,6 +232,7 @@ const make = Effect.gen(function* () {
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
+      readonly accountId?: string | null;
     }) =>
       providerService.startSession(threadId, {
         threadId,
@@ -240,6 +244,7 @@ const make = Effect.gen(function* () {
         ...(options?.serviceTier !== undefined ? { serviceTier: options.serviceTier } : {}),
         ...(options?.modelOptions !== undefined ? { modelOptions: options.modelOptions } : {}),
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
+        ...(input?.accountId ? { accountId: input.accountId } : {}),
         runtimeMode: desiredRuntimeMode,
       });
 
@@ -262,6 +267,9 @@ const make = Effect.gen(function* () {
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" ? thread.id : null;
     if (existingSessionThreadId) {
+      const activeAccountId = providerService.getThreadAccountId
+        ? yield* providerService.getThreadAccountId(threadId)
+        : null;
       const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
       const providerChanged = options?.provider !== undefined && options.provider !== currentProvider;
       const activeSession = yield* resolveActiveSession(existingSessionThreadId);
@@ -273,13 +281,18 @@ const make = Effect.gen(function* () {
         options?.model !== undefined && options.model !== activeSession?.model;
       const shouldRestartForModelChange =
         modelChanged && sessionModelSwitch === "restart-session";
+      const accountChanged =
+        hasRequestedAccountSelection && requestedAccountId !== activeAccountId;
+      const effectiveAccountIdForRestart = hasRequestedAccountSelection
+        ? requestedAccountId
+        : activeAccountId;
 
-      if (!runtimeModeChanged && !providerChanged && !shouldRestartForModelChange) {
+      if (!runtimeModeChanged && !providerChanged && !shouldRestartForModelChange && !accountChanged) {
         return existingSessionThreadId;
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange
+        providerChanged || shouldRestartForModelChange || accountChanged
           ? undefined
           : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
@@ -293,11 +306,15 @@ const make = Effect.gen(function* () {
         providerChanged,
         modelChanged,
         shouldRestartForModelChange,
+        activeAccountId,
+        requestedAccountId,
+        accountChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession({
         ...(resumeCursor !== undefined ? { resumeCursor } : {}),
         ...(options?.provider !== undefined ? { provider: options.provider } : {}),
+        ...(effectiveAccountIdForRestart !== null ? { accountId: effectiveAccountIdForRestart } : {}),
       });
       yield* Effect.logInfo("provider command reactor restarted provider session", {
         threadId,
@@ -311,7 +328,10 @@ const make = Effect.gen(function* () {
     }
 
     const startedSession = yield* startProviderSession(
-      options?.provider !== undefined ? { provider: options.provider } : undefined,
+      {
+        ...(options?.provider !== undefined ? { provider: options.provider } : {}),
+        ...(requestedAccountId !== null ? { accountId: requestedAccountId } : {}),
+      },
     );
     yield* bindSessionToThread(startedSession);
     return startedSession.threadId;
@@ -322,6 +342,7 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly provider?: ProviderKind;
+    readonly accountId?: string | null;
     readonly model?: string;
     readonly serviceTier?: ProviderServiceTier | null;
     readonly modelOptions?: ProviderModelOptions;
@@ -334,6 +355,7 @@ const make = Effect.gen(function* () {
     }
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.provider !== undefined ? { provider: input.provider } : {}),
+      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.serviceTier !== undefined ? { serviceTier: input.serviceTier } : {}),
       ...(input.modelOptions !== undefined ? { modelOptions: input.modelOptions } : {}),
@@ -468,6 +490,7 @@ const make = Effect.gen(function* () {
       threadId: event.payload.threadId,
       messageText: message.text,
       ...(message.attachments !== undefined ? { attachments: message.attachments } : {}),
+      ...(event.payload.accountId !== undefined ? { accountId: event.payload.accountId } : {}),
       ...(event.payload.provider !== undefined ? { provider: event.payload.provider } : {}),
       ...(event.payload.model !== undefined ? { model: event.payload.model } : {}),
       ...(event.payload.serviceTier !== undefined ? { serviceTier: event.payload.serviceTier } : {}),

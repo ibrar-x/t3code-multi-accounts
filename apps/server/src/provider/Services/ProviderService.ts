@@ -100,6 +100,13 @@ export interface ProviderServiceShape {
   }) => Effect.Effect<void, ProviderServiceError>;
 
   /**
+   * Read the active account id currently bound to a thread session, if any.
+   */
+  readonly getThreadAccountId?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<string | null, ProviderServiceError>;
+
+  /**
    * Canonical provider runtime event stream.
    *
    * Fan-out is owned by ProviderService (not by a standalone event-bus service).

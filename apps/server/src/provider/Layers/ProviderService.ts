@@ -141,9 +141,6 @@ function resolveSessionAccount(input: ProviderSessionStartInput): ProviderAccoun
     if (explicitAccount) {
       return explicitAccount;
     }
-    console.warn(
-      `[ProviderService] accountId "${input.accountId}" not found for provider "${provider}". Falling back to default credentials.`,
-    );
   }
 
   const defaultAccount = providerAccounts.find((account) => account.isDefault);
@@ -316,7 +313,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           threadId,
           provider: parsed.provider ?? "codex",
         };
-        const resolvedAccount = resolveSessionAccount(input);
+        const explicitAccountId = input.accountId;
+        let resolvedAccount = resolveSessionAccount(input);
+        if (explicitAccountId && !resolvedAccount) {
+          const storedAccount = yield* Effect.tryPromise(() =>
+            accountManager.getAccountById(explicitAccountId),
+          ).pipe(Effect.orElseSucceed(() => undefined));
+          if (storedAccount?.providerKind === input.provider) {
+            resolvedAccount = storedAccount;
+          } else {
+            console.warn(
+              `[ProviderService] accountId "${explicitAccountId}" not found for provider "${input.provider}". Falling back to default credentials.`,
+            );
+          }
+        }
         const requestedAccountId = resolvedAccount?.id;
         const hasAccountSelectionInput =
           parsed.account !== undefined ||
@@ -591,6 +601,14 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         return Array.from(accountIds.values());
       });
 
+    const getThreadAccountId = (threadId: ThreadId) =>
+      directory.getBinding(threadId).pipe(
+        Effect.map((bindingOption) =>
+          readRuntimeAccountId(Option.getOrUndefined(bindingOption)?.runtimePayload) ?? null,
+        ),
+        Effect.orElseSucceed(() => null),
+      );
+
     const runStopAll = () =>
       Effect.gen(function* () {
         const threadIds = yield* directory.listThreadIds();
@@ -638,6 +656,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
 
     return Object.assign(providerService, {
       getActiveAccountIds,
+      getThreadAccountId,
     });
   });
 
