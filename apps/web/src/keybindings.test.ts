@@ -391,6 +391,19 @@ describe("resolveShortcutCommand", () => {
       "account.codex.select1",
     );
   });
+
+  it("returns provider cycle commands", () => {
+    const keybindings = compile([
+      { shortcut: modShortcut("c", { shiftKey: true }), command: "account.codex.cycle" },
+    ]);
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "c", ctrlKey: true, shiftKey: true }), keybindings, {
+        platform: "Linux",
+      }),
+      "account.codex.cycle",
+    );
+  });
 });
 
 describe("formatShortcutLabel", () => {

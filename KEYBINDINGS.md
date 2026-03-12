@@ -27,6 +27,7 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
   { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
   { "key": "mod+o", "command": "editor.openFavorite" },
+  { "key": "mod+shift+c", "command": "account.codex.cycle", "when": "!terminalFocus" },
   { "key": "mod+shift+a", "command": "account.switcher.open", "when": "!terminalFocus" },
   { "key": "mod+alt+1", "command": "account.codex.select1", "when": "!terminalFocus" },
   { "key": "mod+alt+2", "command": "account.codex.select2", "when": "!terminalFocus" },
@@ -60,8 +61,12 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `chat.newLocal`: create a new local chat thread for the active project (no worktree context)
 - `editor.openFavorite`: open current project/worktree in the last-used editor
 - `account.switcher.open`: open the active provider account switcher
-- `account.{provider}.select{N}`: switch active account slot for a provider (`N` is `1` to `5`)
+- `account.{provider}.cycle`: cycle to the next connected account for a provider
+- `account.{provider}.open`: open the account switcher for a provider
+- `account.{provider}.select{N}`: switch to the `N`th connected account for a provider (`N` is `1` or greater)
 - `script.{id}.run`: run a project script by id (for example `script.test.run`)
+
+Tip: after triggering `account.{provider}.cycle`, type digits (for example `3` or `10`) within a short window to jump directly to that account slot.
 
 ### Key Syntax
 

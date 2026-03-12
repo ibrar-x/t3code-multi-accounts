@@ -59,11 +59,29 @@ it.effect("parses keybinding rules", () =>
     });
     assert.strictEqual(parsedAccountSwitcherOpen.command, "account.switcher.open");
 
+    const parsedAccountCycle = yield* decode(KeybindingRule, {
+      key: "mod+shift+c",
+      command: "account.codex.cycle",
+    });
+    assert.strictEqual(parsedAccountCycle.command, "account.codex.cycle");
+
+    const parsedAccountProviderOpen = yield* decode(KeybindingRule, {
+      key: "mod+shift+o",
+      command: "account.claudeCode.open",
+    });
+    assert.strictEqual(parsedAccountProviderOpen.command, "account.claudeCode.open");
+
     const parsedAccountSelect = yield* decode(KeybindingRule, {
       key: "mod+alt+1",
       command: "account.codex.select1",
     });
     assert.strictEqual(parsedAccountSelect.command, "account.codex.select1");
+
+    const parsedAccountSelectTen = yield* decode(KeybindingRule, {
+      key: "mod+alt+0",
+      command: "account.codex.select10",
+    });
+    assert.strictEqual(parsedAccountSelectTen.command, "account.codex.select10");
   }),
 );
 
@@ -79,8 +97,8 @@ it.effect("rejects invalid command values", () =>
 
     const invalidAccountSlot = yield* Effect.exit(
       decode(KeybindingRule, {
-        key: "mod+alt+6",
-        command: "account.codex.select6",
+        key: "mod+alt+0",
+        command: "account.codex.select0",
       }),
     );
     assert.strictEqual(invalidAccountSlot._tag, "Failure");

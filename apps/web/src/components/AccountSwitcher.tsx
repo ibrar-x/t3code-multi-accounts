@@ -22,9 +22,12 @@ import {
 } from "./AccountManagerPanel.state";
 import {
   DEFAULT_OPTION_VALUE,
+  getAccountSelectionValueForSlot,
   getActiveAccountForProvider,
+  getNextCycledAccountSelectionValue,
   getNextActiveAccountByProvider,
   getProviderAccounts,
+  parseAccountShortcutCommand,
 } from "./AccountSwitcher.logic";
 import { Button } from "./ui/button";
 import {
@@ -67,6 +70,8 @@ const STATUS_LABELS: Record<AccountCheckReason, string> = {
 
 const WARN_STATUS: ReadonlySet<AccountCheckReason> = new Set(["missing", "malformed", "expired"]);
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
+const ACCOUNT_SLOT_SEQUENCE_TIMEOUT_MS = 1200;
+const ACCOUNT_SLOT_SEQUENCE_SETTLE_MS = 360;
 
 function accountLabel(account: ProviderAccount): string {
   if (!account.credentialStatus || account.credentialStatus === "ok") {
@@ -91,21 +96,6 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
     return true;
   }
   return target.closest("input, textarea, select, [contenteditable='true']") !== null;
-}
-
-function parseAccountSelectCommand(command: string): { provider: ProviderKind; slot: number } | null {
-  const match = /^account\.(codex|claudeCode|cursor)\.select([1-5])$/.exec(command);
-  if (!match?.[1] || !match[2]) {
-    return null;
-  }
-  const slot = Number(match[2]);
-  if (!Number.isInteger(slot) || slot < 1 || slot > 5) {
-    return null;
-  }
-  return {
-    provider: match[1] as ProviderKind,
-    slot,
-  };
 }
 
 export interface AccountSwitcherProps {
@@ -226,6 +216,12 @@ export function AccountSwitcher({
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [defaultProviderAccount, setDefaultProviderAccount] = useState<ProviderAccount | null>(null);
   const [sessionProviderAccount, setSessionProviderAccount] = useState<ProviderAccount | null>(null);
+  const shortcutSequenceRef = useRef<{
+    provider: ProviderKind;
+    digits: string;
+    timeoutId: number | null;
+    expiresAt: number;
+  } | null>(null);
 
   const providerAccounts = useMemo(
     () =>
@@ -320,7 +316,7 @@ export function AccountSwitcher({
         setSessionProviderAccount(null);
       }
 
-      const accountIdToCheck = currentSnapshot.account?.id ?? selectedAccountId;
+      const accountIdToCheck = selectedAccountId ?? currentSnapshot.account?.id;
       if (accountIdToCheck) {
         try {
           const checked = await api.accounts.check({ accountId: accountIdToCheck });
@@ -415,17 +411,21 @@ export function AccountSwitcher({
     return () => window.clearInterval(timer);
   }, [refreshSessionRateLimitDetails, selectedValue, sessionActive]);
 
-  const applySelection = useCallback(
-    (value: string) => {
+  const applySelectionForProvider = useCallback(
+    (targetProvider: ProviderKind, value: string): boolean => {
       if (disabled) {
-        return;
+        return false;
       }
 
       const currentMultiAccount = settingsRef.current.multiAccount;
+      const targetProviderAccounts = getProviderAccounts(
+        currentMultiAccount.accounts,
+        targetProvider,
+      ).filter((account) => !account.isDefault);
       const nextActiveAccountByProvider = getNextActiveAccountByProvider({
-        provider,
+        provider: targetProvider,
         selectedValue: value,
-        providerAccounts,
+        providerAccounts: targetProviderAccounts,
         activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
       });
 
@@ -433,9 +433,30 @@ export function AccountSwitcher({
         accounts: currentMultiAccount.accounts,
         activeAccountByProvider: nextActiveAccountByProvider,
       });
-      setInlineError(null);
+      return true;
     },
-    [commitMultiAccount, disabled, provider, providerAccounts],
+    [commitMultiAccount, disabled],
+  );
+
+  const applySelection = useCallback(
+    (value: string) => {
+      const applied = applySelectionForProvider(provider, value);
+      if (applied) {
+        setInlineError(null);
+      }
+    },
+    [applySelectionForProvider, provider],
+  );
+
+  useEffect(
+    () => () => {
+      const pending = shortcutSequenceRef.current;
+      if (pending?.timeoutId != null) {
+        window.clearTimeout(pending.timeoutId);
+      }
+      shortcutSequenceRef.current = null;
+    },
+    [],
   );
 
   useEffect(() => {
@@ -447,6 +468,50 @@ export function AccountSwitcher({
       if (disabled || isEditableEventTarget(event.target)) {
         return;
       }
+
+      const pendingSequence = shortcutSequenceRef.current;
+      const hasActiveSequence = pendingSequence && Date.now() <= pendingSequence.expiresAt;
+      if (
+        hasActiveSequence &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        /^[0-9]$/.test(event.key)
+      ) {
+        if (event.key === "0" && pendingSequence.digits.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        pendingSequence.digits += event.key;
+        pendingSequence.expiresAt = Date.now() + ACCOUNT_SLOT_SEQUENCE_TIMEOUT_MS;
+        if (pendingSequence.timeoutId !== null) {
+          window.clearTimeout(pendingSequence.timeoutId);
+        }
+        pendingSequence.timeoutId = window.setTimeout(() => {
+          const sequence = shortcutSequenceRef.current;
+          if (!sequence) return;
+          const slot = Number(sequence.digits);
+          if (Number.isInteger(slot) && slot > 0) {
+            const currentMultiAccount = settingsRef.current.multiAccount;
+            const targetProviderAccounts = getProviderAccounts(
+              currentMultiAccount.accounts,
+              sequence.provider,
+            ).filter((account) => !account.isDefault);
+            const selectedValue = getAccountSelectionValueForSlot(targetProviderAccounts, slot);
+            if (selectedValue && applySelectionForProvider(sequence.provider, selectedValue)) {
+              if (sequence.provider === provider) {
+                setIsOpen(false);
+              }
+              setInlineError(null);
+            }
+          }
+          shortcutSequenceRef.current = null;
+        }, ACCOUNT_SLOT_SEQUENCE_SETTLE_MS);
+        return;
+      }
+
       const command = resolveShortcutCommand(event, keybindings, {
         context: {
           terminalFocus: false,
@@ -457,34 +522,78 @@ export function AccountSwitcher({
         return;
       }
 
-      if (command === "account.switcher.open") {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsOpen(true);
+      const shortcutCommand = parseAccountShortcutCommand(command);
+      if (!shortcutCommand) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (shortcutCommand.kind === "switcher-open") {
+        if (shortcutCommand.provider === null || shortcutCommand.provider === provider) {
+          setIsOpen(true);
+        }
         setInlineError(null);
         return;
       }
 
-      const selection = parseAccountSelectCommand(command);
-      if (!selection || selection.provider !== provider) {
+      const targetProvider = shortcutCommand.provider;
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const targetProviderAccounts = getProviderAccounts(
+        currentMultiAccount.accounts,
+        targetProvider,
+      ).filter((account) => !account.isDefault);
+
+      if (shortcutCommand.kind === "cycle") {
+        const selectedValue = getNextCycledAccountSelectionValue({
+          providerAccounts: targetProviderAccounts,
+          activeAccountId: currentMultiAccount.activeAccountByProvider[targetProvider] ?? null,
+        });
+        if (!selectedValue) {
+          return;
+        }
+        if (applySelectionForProvider(targetProvider, selectedValue)) {
+          if (targetProvider === provider) {
+            setIsOpen(false);
+          }
+          setInlineError(null);
+        }
+        const existing = shortcutSequenceRef.current;
+        if (existing?.timeoutId != null) {
+          window.clearTimeout(existing.timeoutId);
+        }
+        shortcutSequenceRef.current = {
+          provider: targetProvider,
+          digits: "",
+          expiresAt: Date.now() + ACCOUNT_SLOT_SEQUENCE_TIMEOUT_MS,
+          timeoutId: window.setTimeout(() => {
+            shortcutSequenceRef.current = null;
+          }, ACCOUNT_SLOT_SEQUENCE_TIMEOUT_MS),
+        };
         return;
       }
-      const account = providerAccounts[selection.slot - 1];
-      if (!account) {
+
+      const selectedValue = getAccountSelectionValueForSlot(
+        targetProviderAccounts,
+        shortcutCommand.slot,
+      );
+      if (!selectedValue) {
         return;
       }
-      event.preventDefault();
-      event.stopPropagation();
-      applySelection(account.id);
-      setIsOpen(false);
-      setInlineError(null);
+      if (applySelectionForProvider(targetProvider, selectedValue)) {
+        if (targetProvider === provider) {
+          setIsOpen(false);
+        }
+        setInlineError(null);
+      }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [applySelection, disabled, keybindings, provider, providerAccounts, variant]);
+  }, [applySelectionForProvider, disabled, keybindings, provider, variant]);
 
   const submitConnectAccount = useCallback(async () => {
     if (provider !== "codex") {
@@ -557,7 +666,7 @@ export function AccountSwitcher({
         ? creditsBalance.includes("/")
           ? creditsBalance
           : `${creditsBalance} remaining`
-        : "Unknown";
+        : "Refreshing usage...";
   const contextUsageLine =
     creditsBalance && creditsBalance.length > 0
       ? creditsBalance.includes("/")
@@ -566,12 +675,17 @@ export function AccountSwitcher({
       : contextWindowFullPercent !== null && primaryRemainingPercent !== null
         ? `${contextWindowFullPercent}% used · ${primaryRemainingPercent}% remaining`
         : contextWindowFullPercent !== null
-          ? `${contextWindowFullPercent}% used`
-          : primaryRemainingPercent !== null
-            ? `${primaryRemainingPercent}% remaining`
-            : "Usage details unavailable";
+        ? `${contextWindowFullPercent}% used`
+      : primaryRemainingPercent !== null
+        ? `${primaryRemainingPercent}% remaining`
+        : "Refreshing usage details...";
+  const providerCycleCommand = `account.${provider}.cycle` as const;
+  const providerOpenCommand = `account.${provider}.open` as const;
   const openSwitcherShortcutLabel =
-    shortcutLabelForCommand(keybindings, "account.switcher.open") ?? "⌘⇧A";
+    shortcutLabelForCommand(keybindings, providerCycleCommand) ??
+    shortcutLabelForCommand(keybindings, providerOpenCommand) ??
+    shortcutLabelForCommand(keybindings, "account.switcher.open") ??
+    "⌘⇧A";
   const selectorTrigger = (
     <MenuTrigger
       render={
