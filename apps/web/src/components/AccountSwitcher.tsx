@@ -42,6 +42,7 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "./ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 const PROVIDER_LABELS: Record<ProviderKind, string> = {
   codex: "Codex",
@@ -457,6 +458,39 @@ export function AccountSwitcher({
       : activeAccount?.name ?? defaultAccountDisplayLabel(defaultProviderAccount);
   const triggerLabelWithLimit =
     primaryRemainingPercent !== null ? `${triggerLabel} · ${primaryRemainingPercent}%` : triggerLabel;
+  const contextWindowFullPercent =
+    primaryUsedPercent ?? (primaryRemainingPercent !== null ? 100 - primaryRemainingPercent : null);
+  const creditsBalance = detailsAccount?.codexProfile?.rateLimits?.credits?.balance?.trim() || null;
+  const contextUsageLine =
+    creditsBalance && creditsBalance.length > 0
+      ? creditsBalance.includes("/")
+        ? `${creditsBalance} tokens used`
+        : `${creditsBalance} credits remaining`
+      : contextWindowFullPercent !== null && primaryRemainingPercent !== null
+        ? `${contextWindowFullPercent}% used · ${primaryRemainingPercent}% remaining`
+        : contextWindowFullPercent !== null
+          ? `${contextWindowFullPercent}% used`
+          : primaryRemainingPercent !== null
+            ? `${primaryRemainingPercent}% remaining`
+            : "Usage details unavailable";
+  const menuTrigger = (
+    <MenuTrigger
+      render={
+        <Button
+          size="sm"
+          variant="ghost"
+          className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
+        />
+      }
+      disabled={disabled || isConnecting}
+      title="Switch account (Cmd+Shift+A)"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{triggerLabelWithLimit}</span>
+        <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
+      </span>
+    </MenuTrigger>
+  );
 
   if (variant === "inline") {
     return (
@@ -471,22 +505,25 @@ export function AccountSwitcher({
             setIsOpen(open);
           }}
         >
-          <MenuTrigger
-            render={
-              <Button
-                size="sm"
-                variant="ghost"
-                className="shrink-0 whitespace-nowrap px-2 text-muted-foreground/70 hover:text-foreground/80 sm:px-3"
-              />
-            }
-            disabled={disabled || isConnecting}
-            title="Switch account (Cmd+Shift+A)"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate">{triggerLabelWithLimit}</span>
-              <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
-            </span>
-          </MenuTrigger>
+          {isOpen ? (
+            menuTrigger
+          ) : (
+            <Tooltip>
+              <TooltipTrigger render={menuTrigger} />
+              <TooltipPopup side="top" sideOffset={8} className="w-60 whitespace-normal px-3 py-2">
+                <div className="space-y-1 text-center">
+                  <p className="text-xs text-muted-foreground">Context window:</p>
+                  <p className="text-xl font-semibold leading-none">
+                    {contextWindowFullPercent !== null ? `${contextWindowFullPercent}% full` : "Unknown"}
+                  </p>
+                  <p className="text-sm font-medium">{contextUsageLine}</p>
+                  <p className="pt-1 text-sm text-muted-foreground">
+                    Codex automatically compacts its context
+                  </p>
+                </div>
+              </TooltipPopup>
+            </Tooltip>
+          )}
           <MenuPopup align="end" side="top">
             <MenuSub>
               <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
