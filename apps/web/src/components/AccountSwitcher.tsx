@@ -455,6 +455,8 @@ export function AccountSwitcher({
     selectedValue === DEFAULT_OPTION_VALUE
       ? defaultAccountDisplayLabel(defaultProviderAccount)
       : activeAccount?.name ?? defaultAccountDisplayLabel(defaultProviderAccount);
+  const triggerLabelWithLimit =
+    primaryRemainingPercent !== null ? `${triggerLabel} · ${primaryRemainingPercent}%` : triggerLabel;
 
   if (variant === "inline") {
     return (
@@ -481,7 +483,7 @@ export function AccountSwitcher({
             title="Switch account (Cmd+Shift+A)"
           >
             <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate">{triggerLabel}</span>
+              <span className="truncate">{triggerLabelWithLimit}</span>
               <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
             </span>
           </MenuTrigger>
