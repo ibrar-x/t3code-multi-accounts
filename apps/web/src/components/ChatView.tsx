@@ -1329,6 +1329,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const isAccountSwitcherLocked =
     activeThread?.session?.status === "running" || activeThread?.session?.status === "connecting";
+  const isAccountSessionActive = Boolean(
+    activeThread?.session &&
+      activeThread.session.status !== "closed",
+  );
   const hasReachedTerminalLimit = terminalState.terminalIds.length >= MAX_THREAD_TERMINAL_COUNT;
   const setThreadError = useCallback(
     (targetThreadId: ThreadId | null, error: string | null) => {
@@ -3878,6 +3882,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             provider="codex"
             disabled={isAccountSwitcherLocked}
             variant="inline"
+            sessionActive={isAccountSessionActive}
           />
         }
       />

@@ -100,6 +100,7 @@ export interface AccountSwitcherProps {
   readonly provider: ProviderKind;
   readonly disabled?: boolean;
   readonly variant?: "inline" | "panel";
+  readonly sessionActive?: boolean;
 }
 
 function readPrimaryRemainingPercent(account: ProviderAccount | null): number | null {
@@ -110,6 +111,18 @@ function readPrimaryRemainingPercent(account: ProviderAccount | null): number | 
   }
   if (typeof primary.usedPercent === "number") {
     return Math.max(0, Math.min(100, Math.round(100 - primary.usedPercent)));
+  }
+  return null;
+}
+
+function readPrimaryUsedPercent(account: ProviderAccount | null): number | null {
+  const primary = account?.codexProfile?.rateLimits?.primary;
+  if (!primary) return null;
+  if (typeof primary.usedPercent === "number") {
+    return Math.max(0, Math.min(100, Math.round(primary.usedPercent)));
+  }
+  if (typeof primary.remainingPercent === "number") {
+    return Math.max(0, Math.min(100, Math.round(100 - primary.remainingPercent)));
   }
   return null;
 }
@@ -135,9 +148,11 @@ export function AccountSwitcher({
   provider,
   disabled = false,
   variant = "inline",
+  sessionActive = false,
 }: AccountSwitcherProps) {
   const { settings, updateSettings } = useAppSettings();
   const hasHydratedAccountsRef = useRef(false);
+  const settingsRef = useRef(settings);
   const [isOpen, setIsOpen] = useState(false);
   const [isConnectDialogOpen, setIsConnectDialogOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState("");
@@ -159,7 +174,84 @@ export function AccountSwitcher({
 
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
   const primaryRemainingPercent = readPrimaryRemainingPercent(detailsAccount);
+  const primaryUsedPercent = readPrimaryUsedPercent(detailsAccount);
   const primaryResetLabel = formatResetLabel(detailsAccount);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  const commitMultiAccount = useCallback(
+    (nextMultiAccount: typeof settings.multiAccount) => {
+      settingsRef.current = {
+        ...settingsRef.current,
+        multiAccount: nextMultiAccount,
+      };
+      updateSettings({ multiAccount: nextMultiAccount });
+    },
+    [updateSettings],
+  );
+
+  const applyListedAccounts = useCallback(
+    (listedAccounts: readonly ProviderAccount[]) => {
+      const nextProviderAccounts = getProviderAccounts(listedAccounts, provider);
+      const nextDefaultAccount =
+        nextProviderAccounts.find((account) => account.isDefault) ?? null;
+      setDefaultProviderAccount(nextDefaultAccount);
+
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const nextAccounts = listedAccounts.filter((account) => !account.isDefault);
+      const nextActive = cleanupActiveAccountByProvider(
+        currentMultiAccount.activeAccountByProvider,
+        nextAccounts,
+      );
+
+      commitMultiAccount({
+        accounts: nextAccounts,
+        activeAccountByProvider: nextActive,
+      });
+    },
+    [commitMultiAccount, provider],
+  );
+
+  const refreshSessionRateLimitDetails = useCallback(
+    async (options?: { readonly includeList?: boolean }) => {
+      const api = readNativeApi();
+      if (!api) return;
+
+      const currentMultiAccount = settingsRef.current.multiAccount;
+      const selectedAccountId = currentMultiAccount.activeAccountByProvider[provider] ?? null;
+
+      if (selectedAccountId) {
+        try {
+          const checked = await api.accounts.check({ accountId: selectedAccountId });
+          if (checked.account) {
+            const nextAccounts = upsertAccountById(currentMultiAccount.accounts, checked.account);
+            const nextActive = cleanupActiveAccountByProvider(
+              currentMultiAccount.activeAccountByProvider,
+              nextAccounts,
+            );
+            commitMultiAccount({
+              accounts: nextAccounts,
+              activeAccountByProvider: nextActive,
+            });
+          }
+        } catch {
+          // Non-blocking: keep existing account details if a refresh probe fails.
+        }
+      }
+
+      if (options?.includeList || !selectedAccountId) {
+        try {
+          const listed = await api.accounts.list({});
+          applyListedAccounts(listed.accounts);
+        } catch {
+          // Non-blocking: keep existing local state if listing fails.
+        }
+      }
+    },
+    [applyListedAccounts, commitMultiAccount, provider],
+  );
 
   useEffect(() => {
     if (!activeAccountId) {
@@ -168,59 +260,49 @@ export function AccountSwitcher({
     if (activeAccount) {
       return;
     }
-    updateSettings({
-      multiAccount: {
-        accounts: settings.multiAccount.accounts,
-        activeAccountByProvider: clearActiveForProvider(
-          settings.multiAccount.activeAccountByProvider,
-          provider,
-        ),
-      },
+    const currentMultiAccount = settingsRef.current.multiAccount;
+    commitMultiAccount({
+      accounts: currentMultiAccount.accounts,
+      activeAccountByProvider: clearActiveForProvider(
+        currentMultiAccount.activeAccountByProvider,
+        provider,
+      ),
     });
-  }, [
-    activeAccount,
-    activeAccountId,
-    provider,
-    settings.multiAccount.accounts,
-    settings.multiAccount.activeAccountByProvider,
-    updateSettings,
-  ]);
+  }, [activeAccount, activeAccountId, commitMultiAccount, provider]);
 
   useEffect(() => {
     if (hasHydratedAccountsRef.current) {
       return;
     }
     hasHydratedAccountsRef.current = true;
-    const api = readNativeApi();
-    if (!api) {
-      return;
-    }
     let cancelled = false;
-    void api.accounts
-      .list({})
-      .then((response) => {
-        if (cancelled) return;
-        const nextProviderAccounts = getProviderAccounts(response.accounts, provider);
-        const nextDefaultAccount =
-          nextProviderAccounts.find((account) => account.isDefault) ?? null;
-        setDefaultProviderAccount(nextDefaultAccount);
-        const nextAccounts = response.accounts.filter((account) => !account.isDefault);
-        const nextActive = cleanupActiveAccountByProvider(
-          settings.multiAccount.activeAccountByProvider,
-          nextAccounts,
-        );
-        updateSettings({
-          multiAccount: {
-            accounts: nextAccounts,
-            activeAccountByProvider: nextActive,
-          },
-        });
-      })
-      .catch(() => undefined);
+    void refreshSessionRateLimitDetails({ includeList: true }).then(() => {
+      if (cancelled) return;
+    });
     return () => {
       cancelled = true;
     };
-  }, [provider, settings.multiAccount.activeAccountByProvider, updateSettings]);
+  }, [refreshSessionRateLimitDetails]);
+
+  useEffect(() => {
+    if (!hasHydratedAccountsRef.current) {
+      return;
+    }
+    const includeList = selectedValue === DEFAULT_OPTION_VALUE;
+    void refreshSessionRateLimitDetails({ includeList });
+  }, [refreshSessionRateLimitDetails, selectedValue]);
+
+  useEffect(() => {
+    if (!sessionActive) {
+      return;
+    }
+    const includeList = selectedValue === DEFAULT_OPTION_VALUE;
+    void refreshSessionRateLimitDetails({ includeList });
+    const timer = window.setInterval(() => {
+      void refreshSessionRateLimitDetails({ includeList });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [refreshSessionRateLimitDetails, selectedValue, sessionActive]);
 
   useEffect(() => {
     if (variant !== "inline") {
@@ -248,7 +330,7 @@ export function AccountSwitcher({
         return;
       }
 
-      const currentMultiAccount = settings.multiAccount;
+      const currentMultiAccount = settingsRef.current.multiAccount;
       const nextActiveAccountByProvider = getNextActiveAccountByProvider({
         provider,
         selectedValue: value,
@@ -256,15 +338,13 @@ export function AccountSwitcher({
         activeAccountByProvider: currentMultiAccount.activeAccountByProvider,
       });
 
-      updateSettings({
-        multiAccount: {
-          accounts: currentMultiAccount.accounts,
-          activeAccountByProvider: nextActiveAccountByProvider,
-        },
+      commitMultiAccount({
+        accounts: currentMultiAccount.accounts,
+        activeAccountByProvider: nextActiveAccountByProvider,
       });
       setInlineError(null);
     },
-    [disabled, provider, providerAccounts, settings.multiAccount, updateSettings],
+    [commitMultiAccount, disabled, provider, providerAccounts],
   );
 
   const submitConnectAccount = useCallback(async () => {
@@ -288,41 +368,40 @@ export function AccountSwitcher({
     setIsConnecting(true);
     setInlineError(null);
     try {
+      const currentMultiAccount = settingsRef.current.multiAccount;
       const response = await api.accounts.add({
         providerKind: provider,
         name,
       });
-      const nextAccounts = upsertAccountById(settings.multiAccount.accounts, response.account);
+      const nextAccounts = upsertAccountById(currentMultiAccount.accounts, response.account);
       const nextActive = getNextActiveAccountByProvider({
         provider,
         selectedValue: response.account.id,
         providerAccounts: nextAccounts.filter((account) => account.providerKind === provider),
         activeAccountByProvider: cleanupActiveAccountByProvider(
-          settings.multiAccount.activeAccountByProvider,
+          currentMultiAccount.activeAccountByProvider,
           nextAccounts,
         ),
       });
 
-      updateSettings({
-        multiAccount: {
-          accounts: nextAccounts,
-          activeAccountByProvider: nextActive,
-        },
+      commitMultiAccount({
+        accounts: nextAccounts,
+        activeAccountByProvider: nextActive,
       });
       setNewAccountName("");
       setIsConnectDialogOpen(false);
       setIsOpen(false);
+      void refreshSessionRateLimitDetails({ includeList: true });
     } catch (error) {
       setInlineError(toAccountActionErrorMessage(error, "Unable to connect account."));
     } finally {
       setIsConnecting(false);
     }
   }, [
+    commitMultiAccount,
     newAccountName,
     provider,
-    settings.multiAccount.accounts,
-    settings.multiAccount.activeAccountByProvider,
-    updateSettings,
+    refreshSessionRateLimitDetails,
   ]);
 
   const triggerLabel =
@@ -509,7 +588,7 @@ export function AccountSwitcher({
           {detailsAccount.codexProfile?.email ? `${detailsAccount.codexProfile.email} · ` : ""}
           {detailsAccount.codexProfile?.type ? `${detailsAccount.codexProfile.type} · ` : ""}
           {primaryRemainingPercent !== null
-            ? `${primaryRemainingPercent}% remaining`
+            ? `${primaryRemainingPercent}% remaining${primaryUsedPercent !== null ? ` (${primaryUsedPercent}% used)` : ""}`
             : "Limit unavailable"}
           {primaryResetLabel ? ` · resets ${primaryResetLabel}` : ""}
         </p>
