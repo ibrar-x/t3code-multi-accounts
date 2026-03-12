@@ -21,7 +21,15 @@ const STATIC_KEYBINDING_COMMANDS = [
   "account.switcher.open",
 ] as const;
 
-const ACCOUNT_SLOT_NUMBER = Schema.Literals(["1", "2", "3", "4", "5"]);
+const ACCOUNT_PROVIDER_ACTION = Schema.Literals(["cycle", "open"]);
+export const ACCOUNT_PROVIDER_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("account."),
+  ProviderKind,
+  Schema.Literal("."),
+  ACCOUNT_PROVIDER_ACTION,
+]);
+
+const ACCOUNT_SLOT_NUMBER = Schema.NonEmptyString.check(Schema.isPattern(/^[1-9][0-9]{0,2}$/));
 export const ACCOUNT_SELECT_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal("account."),
   ProviderKind,
@@ -40,6 +48,7 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
 
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
+  ACCOUNT_PROVIDER_COMMAND_PATTERN,
   ACCOUNT_SELECT_COMMAND_PATTERN,
   SCRIPT_RUN_COMMAND_PATTERN,
 ]);

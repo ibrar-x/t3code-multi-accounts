@@ -2,9 +2,12 @@ import type { ProviderAccount } from "@t3tools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+  getAccountSelectionValueForSlot,
   getActiveAccountForProvider,
+  getNextCycledAccountSelectionValue,
   getNextActiveAccountByProvider,
   getProviderAccounts,
+  parseAccountShortcutCommand,
 } from "./AccountSwitcher.logic";
 
 function makeAccount(id: string, providerKind: ProviderAccount["providerKind"]): ProviderAccount {
@@ -100,5 +103,90 @@ describe("getNextActiveAccountByProvider", () => {
     });
 
     expect(next).toBe(current);
+  });
+});
+
+describe("parseAccountShortcutCommand", () => {
+  it("parses switcher-open commands", () => {
+    expect(parseAccountShortcutCommand("account.switcher.open")).toEqual({
+      kind: "switcher-open",
+      provider: null,
+    });
+    expect(parseAccountShortcutCommand("account.codex.open")).toEqual({
+      kind: "switcher-open",
+      provider: "codex",
+    });
+  });
+
+  it("parses cycle and slot selection commands", () => {
+    expect(parseAccountShortcutCommand("account.codex.cycle")).toEqual({
+      kind: "cycle",
+      provider: "codex",
+    });
+    expect(parseAccountShortcutCommand("account.codex.select10")).toEqual({
+      kind: "select",
+      provider: "codex",
+      slot: 10,
+    });
+  });
+
+  it("rejects malformed account commands", () => {
+    expect(parseAccountShortcutCommand("account.codex.select0")).toBeNull();
+    expect(parseAccountShortcutCommand("account.codex.select")).toBeNull();
+    expect(parseAccountShortcutCommand("account.other.cycle")).toBeNull();
+  });
+});
+
+describe("getAccountSelectionValueForSlot", () => {
+  it("returns null for invalid slots", () => {
+    const providerAccounts = [makeAccount("acc_codex_1", "codex")];
+    expect(getAccountSelectionValueForSlot(providerAccounts, 0)).toBeNull();
+    expect(getAccountSelectionValueForSlot(providerAccounts, -1)).toBeNull();
+    expect(getAccountSelectionValueForSlot(providerAccounts, 9)).toBeNull();
+  });
+
+  it("returns account id for one-based slot", () => {
+    const providerAccounts = [
+      makeAccount("acc_codex_1", "codex"),
+      makeAccount("acc_codex_2", "codex"),
+    ];
+    expect(getAccountSelectionValueForSlot(providerAccounts, 2)).toBe("acc_codex_2");
+  });
+});
+
+describe("getNextCycledAccountSelectionValue", () => {
+  it("returns first account when there is no active account", () => {
+    const providerAccounts = [
+      makeAccount("acc_codex_1", "codex"),
+      makeAccount("acc_codex_2", "codex"),
+    ];
+    expect(
+      getNextCycledAccountSelectionValue({
+        providerAccounts,
+        activeAccountId: null,
+      }),
+    ).toBe("acc_codex_1");
+  });
+
+  it("wraps to first account after last account", () => {
+    const providerAccounts = [
+      makeAccount("acc_codex_1", "codex"),
+      makeAccount("acc_codex_2", "codex"),
+    ];
+    expect(
+      getNextCycledAccountSelectionValue({
+        providerAccounts,
+        activeAccountId: "acc_codex_2",
+      }),
+    ).toBe("acc_codex_1");
+  });
+
+  it("returns null when provider has no accounts", () => {
+    expect(
+      getNextCycledAccountSelectionValue({
+        providerAccounts: [],
+        activeAccountId: "acc_codex_1",
+      }),
+    ).toBeNull();
   });
 });
