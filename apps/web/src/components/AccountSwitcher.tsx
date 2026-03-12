@@ -747,7 +747,7 @@ export function AccountSwitcher({
           <MenuPopup align="end" side="top">
             <MenuSub>
               <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
-              <MenuSubPopup className="w-56 [--available-height:min(22rem,70vh)]">
+              <MenuSubPopup className="w-72 max-w-[min(26rem,90vw)] [--available-height:min(22rem,70vh)]">
                 {inlineError ? (
                   <>
                     <div className="px-2 py-1.5 text-xs text-destructive">{inlineError}</div>
@@ -763,13 +763,18 @@ export function AccountSwitcher({
                     }}
                   >
                     <MenuRadioItem value={DEFAULT_OPTION_VALUE}>
-                      <span className="truncate">
+                      <span
+                        className="block min-w-0 truncate"
+                        title={defaultAccountDisplayLabel(defaultProviderAccount)}
+                      >
                         {defaultAccountDisplayLabel(defaultProviderAccount)}
                       </span>
                     </MenuRadioItem>
                     {providerAccounts.map((account) => (
                       <MenuRadioItem key={account.id} value={account.id}>
-                        <span className="truncate">{inlineAccountLabel(account)}</span>
+                        <span className="block min-w-0 truncate" title={inlineAccountLabel(account)}>
+                          {inlineAccountLabel(account)}
+                        </span>
                       </MenuRadioItem>
                     ))}
                   </MenuRadioGroup>
