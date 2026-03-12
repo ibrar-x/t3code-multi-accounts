@@ -299,6 +299,58 @@ describe("wsServer account method routing", () => {
     });
   });
 
+  it("routes accounts.check for synthetic default codex account payload", async () => {
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = "/tmp/t3code-default-check-test";
+    vi.spyOn(accountManager, "getAccountById").mockResolvedValue(undefined);
+    vi.spyOn(CodexProfileProbe, "readCodexAccountProfileFromAuthJson").mockResolvedValue({
+      type: "chatgpt",
+      email: "default@example.com",
+      planType: "team",
+      rateLimits: {
+        primary: {
+          usedPercent: 52,
+          remainingPercent: 48,
+          windowDurationMins: 300,
+        },
+      },
+      syncedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    try {
+      server = await createTestServer();
+      const address = server.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const ws = await connectWs(port);
+      sockets.push(ws);
+      await waitForMessage(ws); // welcome push
+
+      const response = await sendRequest(ws, WS_METHODS.accountsCheck, {
+        accountId: "acc_codex_default_system",
+      });
+      expect(response.error).toBeUndefined();
+      expect(response.result).toEqual({
+        accountId: "acc_codex_default_system",
+        valid: false,
+        reason: "missing",
+        account: expect.objectContaining({
+          id: "acc_codex_default_system",
+          isDefault: true,
+          codexProfile: expect.objectContaining({
+            email: "default@example.com",
+            planType: "team",
+          }),
+        }),
+      });
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+    }
+  });
+
   it("routes accounts.supported", async () => {
     server = await createTestServer();
     const address = server.address();
@@ -321,6 +373,13 @@ describe("wsServer account method routing", () => {
       type: "chatgpt",
       email: "fast@example.com",
       planType: "pro",
+      rateLimits: {
+        primary: {
+          usedPercent: 21,
+          remainingPercent: 79,
+          windowDurationMins: 300,
+        },
+      },
       syncedAt: "2026-01-01T00:00:00.000Z",
     });
 

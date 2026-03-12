@@ -75,7 +75,10 @@ import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
 import { DEFAULT_CODEX_ACCOUNT_ID, accountManager } from "./accounts/accountManager.ts";
-import { readCodexAccountProfileFromAuthJson } from "./accounts/codexProfileProbe.ts";
+import {
+  readCodexAccountProfile,
+  readCodexAccountProfileFromAuthJson,
+} from "./accounts/codexProfileProbe.ts";
 import { getStrategy, getSupportedProviders } from "./accounts/strategies/registry.ts";
 import { runProcess } from "./processRunner";
 
@@ -157,6 +160,40 @@ function websocketRawToString(raw: unknown): string | null {
 function trimNonEmpty(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+type MaybeCodexProfile = Awaited<ReturnType<typeof readCodexAccountProfileFromAuthJson>>;
+
+function hasCodexIdentityDetails(profile: MaybeCodexProfile): boolean {
+  if (!profile) {
+    return false;
+  }
+  return Boolean(profile.type || profile.email || profile.name || profile.planType);
+}
+
+function hasCodexUsageDetails(profile: MaybeCodexProfile): boolean {
+  if (!profile) {
+    return false;
+  }
+  const rateLimits = profile.rateLimits;
+  if (!rateLimits) {
+    return false;
+  }
+  return Boolean(rateLimits.primary || rateLimits.secondary || rateLimits.credits);
+}
+
+async function readCodexProfileWithUsageFallback(
+  profilePath: string,
+): Promise<MaybeCodexProfile> {
+  const authProfile = await readCodexAccountProfileFromAuthJson(profilePath).catch(
+    () => undefined,
+  );
+  if (hasCodexIdentityDetails(authProfile) && hasCodexUsageDetails(authProfile)) {
+    return authProfile;
+  }
+
+  const fullProfile = await readCodexAccountProfile(profilePath).catch(() => undefined);
+  return fullProfile ?? authProfile;
 }
 
 async function pickFolderFromServer(): Promise<string | null> {
@@ -1113,13 +1150,29 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
 
       case WS_METHODS.accountsCheck: {
         const body = stripRequestTag(request.body);
-        const account = yield* Effect.tryPromise({
+        const persistedAccount = yield* Effect.tryPromise({
           try: () => accountManager.getAccountById(body.accountId),
           catch: (cause) =>
             new RouteRequestError({
               message: `Failed to read account "${body.accountId}": ${String(cause)}`,
             }),
         });
+        const defaultProfilePath = path.resolve(
+          process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"),
+        );
+        const account =
+          persistedAccount ??
+          (body.accountId === DEFAULT_CODEX_ACCOUNT_ID
+            ? {
+                id: DEFAULT_CODEX_ACCOUNT_ID,
+                providerKind: "codex" as const,
+                name: "Default system credentials",
+                profilePath: defaultProfilePath,
+                isDefault: true,
+                createdAt: "1970-01-01T00:00:00.000Z",
+                lastUsedAt: null,
+              }
+            : undefined);
         if (!account) {
           return {
             accountId: body.accountId,
@@ -1127,16 +1180,43 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
             reason: "missing" as const,
           };
         }
-        return yield* Effect.tryPromise({
-          try: () => accountManager.checkAccount(account),
-          catch: (cause) =>
-            new RouteRequestError({
-              message:
-                cause instanceof Error
-                  ? cause.message
-                  : `Failed to check account "${body.accountId}".`,
-          }),
+        if (!account.isDefault || account.providerKind !== "codex") {
+          return yield* Effect.tryPromise({
+            try: () => accountManager.checkAccount(account),
+            catch: (cause) =>
+              new RouteRequestError({
+                message:
+                  cause instanceof Error
+                    ? cause.message
+                    : `Failed to check account "${body.accountId}".`,
+              }),
+          });
+        }
+
+        const status = yield* Effect.tryPromise({
+          try: () => getStrategy("codex").checkCredentials(defaultProfilePath),
+          catch: () => ({ valid: false as const, reason: "missing" as const }),
         });
+        const codexProfile = yield* Effect.tryPromise({
+          try: () => readCodexProfileWithUsageFallback(defaultProfilePath),
+          catch: () => undefined,
+        });
+        const defaultName =
+          codexProfile?.name?.trim() ||
+          codexProfile?.email?.trim() ||
+          "Default system credentials";
+        const defaultAccount = {
+          ...account,
+          name: defaultName,
+          ...(status.valid ? { credentialStatus: "ok" as const } : { credentialStatus: status.reason }),
+          ...(codexProfile ? { codexProfile } : {}),
+        };
+        return {
+          accountId: body.accountId,
+          valid: status.valid,
+          reason: status.valid ? ("ok" as const) : status.reason,
+          account: defaultAccount,
+        };
       }
 
       case WS_METHODS.accountsCurrent: {
@@ -1174,7 +1254,10 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
               catch: () => ({ valid: false as const, reason: "missing" as const }),
             });
             const codexProfile = yield* Effect.tryPromise({
-              try: () => readCodexAccountProfileFromAuthJson(account.profilePath),
+              try: () =>
+                hasCodexIdentityDetails(account.codexProfile) && hasCodexUsageDetails(account.codexProfile)
+                  ? Promise.resolve(account.codexProfile)
+                  : readCodexProfileWithUsageFallback(account.profilePath),
               catch: () => undefined,
             });
             return {
@@ -1194,7 +1277,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
           process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"),
         );
         const defaultProfile = yield* Effect.tryPromise({
-          try: () => readCodexAccountProfileFromAuthJson(defaultProfilePath),
+          try: () => readCodexProfileWithUsageFallback(defaultProfilePath),
           catch: () => undefined,
         });
         if (!defaultProfile) {

@@ -279,6 +279,50 @@ describe("accountManager", () => {
     });
   });
 
+  it("probes codex usage details when auth profile has identity but no rate limits", async () => {
+    const fixture = await makeFixture();
+    const account = await fixture.manager.addAccount("codex", "Personal");
+
+    const readCodexProfile = vi.fn(async (profilePath: string) =>
+      profilePath === account.profilePath
+        ? {
+            type: "chatgpt" as const,
+            email: "personal@example.com",
+            planType: "team",
+            rateLimits: {
+              primary: {
+                usedPercent: 36,
+                remainingPercent: 64,
+                windowDurationMins: 300,
+              },
+            },
+            syncedAt: "2026-01-01T00:00:00.000Z",
+          }
+        : undefined,
+    );
+
+    const manager = createFixtureManager({
+      accountsDir: fixture.accountsDir,
+      storePath: fixture.storePath,
+      strategyByProvider: fixture.strategyByProvider,
+      readCodexProfile,
+      readCodexProfileFromAuthJson: async (profilePath) =>
+        profilePath === account.profilePath
+          ? {
+              type: "chatgpt",
+              email: "personal@example.com",
+              planType: "team",
+              syncedAt: "2026-01-01T00:00:00.000Z",
+            }
+          : undefined,
+    });
+
+    const list = await manager.listAccounts();
+    const hydrated = list.find((entry) => entry.id === account.id);
+    expect(hydrated?.codexProfile?.rateLimits?.primary?.remainingPercent).toBe(64);
+    expect(readCodexProfile).toHaveBeenCalledWith(account.profilePath);
+  });
+
   it("does not duplicate system default when persisted codex account matches the same identity", async () => {
     const fixture = await makeFixture();
     const account = await fixture.manager.addAccount("codex", "Personal Plus");

@@ -285,7 +285,8 @@ You SHOULD ask many questions, but each question must:
 When running shell commands that invoke \`codex\`, always use the active session \`CODEX_HOME\` context.
 - Prefer \`$CODEX_HOME/auth.json\` when checking login/account details.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
-- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims.
+- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims from \`tokens.id_token\` (decode JWT payload locally; do not print tokens).
+- Treat \`tokens.account_id\`, JWT \`email\`, JWT \`sub\`, JWT \`iss\`, JWT \`aud\`, JWT \`iat\`, JWT \`exp\`, and JWT \`https://api.openai.com/auth.chatgpt_plan_type\` as the primary identity fields.
 - If that command succeeds, return the final account details immediately in the same response; do not perform additional discovery commands.
 - Only if the auth file is missing or malformed, run one fallback command: \`codex login status\` in the same session environment.
 - Do not run exploratory commands (\`codex --help\`, \`ls\`, repeated probes, timestamp conversion follow-ups) for this task.
@@ -356,7 +357,8 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 When running shell commands that invoke \`codex\`, or when inspecting authentication/account details, use the active session environment:
 - Prefer \`$CODEX_HOME/auth.json\` when \`CODEX_HOME\` is set.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
-- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims.
+- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims from \`tokens.id_token\` (decode JWT payload locally; do not print tokens).
+- Treat \`tokens.account_id\`, JWT \`email\`, JWT \`sub\`, JWT \`iss\`, JWT \`aud\`, JWT \`iat\`, JWT \`exp\`, and JWT \`https://api.openai.com/auth.chatgpt_plan_type\` as the primary identity fields.
 - If that command succeeds, return the final account details immediately in the same response; do not perform additional discovery commands.
 - Only if the auth file is missing or malformed, run one fallback command: \`codex login status\` in the current session environment.
 - Do not run exploratory commands (\`codex --help\`, \`ls\`, repeated probes, timestamp conversion follow-ups) for this task.

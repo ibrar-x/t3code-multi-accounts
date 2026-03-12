@@ -215,7 +215,7 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
     if (status.valid) {
       const authProfile = await readCodexProfileFromAuthJson(safeProfilePath).catch(() => undefined);
       const profileWithRateLimits =
-        authProfile?.rateLimits || authProfile?.planType
+        authProfile?.rateLimits
           ? authProfile
           : await readCodexProfile(safeProfilePath).catch(() => undefined);
       nextProfile = pickPreferredCodexProfile(account.codexProfile, profileWithRateLimits, authProfile);
@@ -257,7 +257,7 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
         () => undefined,
       );
       const defaultProfile =
-        defaultProfileFromAuth?.rateLimits || defaultProfileFromAuth?.planType
+        defaultProfileFromAuth?.rateLimits
           ? defaultProfileFromAuth
           : (await readCodexProfile(defaultProfilePath).catch(() => undefined)) ??
             defaultProfileFromAuth;
