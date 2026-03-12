@@ -643,6 +643,12 @@ describe("ProviderCommandReactor", () => {
       return thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ?? false;
     });
 
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+      return thread?.session?.status === "error";
+    });
+
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
     const failureActivity = thread?.activities.find(

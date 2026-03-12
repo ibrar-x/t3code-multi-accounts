@@ -332,10 +332,29 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         return { valid: false, reason: "malformed" };
       }
       const record = parsed as Record<string, unknown>;
-      if (
-        typeof record.access_token !== "string" ||
-        typeof record.refresh_token !== "string"
-      ) {
+      const tokens =
+        typeof record.tokens === "object" && record.tokens !== null
+          ? (record.tokens as Record<string, unknown>)
+          : undefined;
+
+      const directAccessToken =
+        typeof record.access_token === "string" ? record.access_token : undefined;
+      const directRefreshToken =
+        typeof record.refresh_token === "string" ? record.refresh_token : undefined;
+      const directIdToken = typeof record.id_token === "string" ? record.id_token : undefined;
+
+      const nestedAccessToken =
+        typeof tokens?.access_token === "string" ? tokens.access_token : undefined;
+      const nestedRefreshToken =
+        typeof tokens?.refresh_token === "string" ? tokens.refresh_token : undefined;
+      const nestedIdToken = typeof tokens?.id_token === "string" ? tokens.id_token : undefined;
+
+      const hasAccessToken = Boolean(directAccessToken || nestedAccessToken);
+      const hasRefreshOrIdToken = Boolean(
+        directRefreshToken || nestedRefreshToken || directIdToken || nestedIdToken,
+      );
+
+      if (!hasAccessToken || !hasRefreshOrIdToken) {
         return { valid: false, reason: "malformed" };
       }
       return { valid: true };

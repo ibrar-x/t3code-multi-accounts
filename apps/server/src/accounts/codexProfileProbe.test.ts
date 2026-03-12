@@ -207,4 +207,91 @@ describe("readCodexAccountProfile", () => {
     stdout.end();
     child.emit("close", 0);
   });
+
+  it("parses codex usage payload rate_limit windows returned by account/rateLimits/read", async () => {
+    const profilePath = await makeProfileDir({
+      auth_mode: "chatgpt",
+      tokens: {
+        id_token: makeIdToken({
+          email: "limits@example.com",
+        }),
+        access_token: "access",
+        refresh_token: "refresh",
+      },
+    });
+
+    const { child, stdout } = createMockAppServer((request, input) => {
+      if (request.method === "initialize") {
+        input.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }) + "\n");
+        return;
+      }
+      if (request.method === "account/read") {
+        input.stdout.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: {
+              account: {},
+            },
+          }) + "\n",
+        );
+        return;
+      }
+      if (request.method === "account/rateLimits/read") {
+        input.stdout.write(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: {
+              plan_type: "pro",
+              rate_limit: [
+                {
+                  primary_window: [
+                    {
+                      used_percent: 67,
+                      limit_window_seconds: 3600,
+                      reset_at: 1_750_001_000,
+                    },
+                  ],
+                  secondary_window: [
+                    {
+                      used_percent: 20,
+                      limit_window_seconds: 120,
+                      reset_at: 1_750_002_000,
+                    },
+                  ],
+                },
+              ],
+            },
+          }) + "\n",
+        );
+      }
+    });
+    spawnMock.mockReturnValue(child);
+
+    const profile = await readCodexAccountProfile(profilePath, 500);
+    expect(profile).toMatchObject({
+      type: "chatgpt",
+      email: "limits@example.com",
+      planType: "pro",
+      rateLimits: {
+        planType: "pro",
+        primary: {
+          usedPercent: 67,
+          remainingPercent: 33,
+          windowDurationMins: 60,
+          resetsAt: 1_750_001_000,
+        },
+        secondary: {
+          usedPercent: 20,
+          remainingPercent: 80,
+          windowDurationMins: 2,
+          resetsAt: 1_750_002_000,
+        },
+      },
+    });
+
+    stdout.end();
+    child.emit("close", 0);
+  });
 });

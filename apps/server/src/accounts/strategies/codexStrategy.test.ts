@@ -428,6 +428,20 @@ describe("CodexCredentialStrategy", () => {
       "utf8",
     );
     expect(await strategy.checkCredentials(profilePath)).toEqual({ valid: true });
+
+    await fs.writeFile(
+      authPath,
+      JSON.stringify({
+        auth_mode: "chatgpt",
+        tokens: {
+          access_token: "token_nested",
+          refresh_token: "refresh_nested",
+          id_token: "id_nested",
+        },
+      }),
+      "utf8",
+    );
+    expect(await strategy.checkCredentials(profilePath)).toEqual({ valid: true });
   });
 
   it("removes profile directories safely", async () => {

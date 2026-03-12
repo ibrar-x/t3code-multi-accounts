@@ -59,7 +59,14 @@ function asString(value: unknown): string | undefined {
 }
 
 function asNumber(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 function normalizeUsedPercent(value: unknown): number | undefined {
@@ -68,8 +75,35 @@ function normalizeUsedPercent(value: unknown): number | undefined {
   return Math.max(0, Math.min(100, numeric));
 }
 
+function unwrapOptionalArray(value: unknown): unknown {
+  let cursor = value;
+  while (Array.isArray(cursor) && cursor.length === 1) {
+    cursor = cursor[0];
+  }
+  return cursor;
+}
+
+function asArray(value: unknown): readonly unknown[] | undefined {
+  const unwrapped = unwrapOptionalArray(value);
+  return Array.isArray(unwrapped) ? unwrapped : undefined;
+}
+
+function firstArrayItem(value: unknown): unknown {
+  const maybeArray = asArray(value);
+  if (!maybeArray || maybeArray.length === 0) {
+    return unwrapOptionalArray(value);
+  }
+  return unwrapOptionalArray(maybeArray[0]);
+}
+
+function windowMinutesFromSeconds(value: unknown): number | undefined {
+  const seconds = asNumber(value);
+  if (seconds === undefined || seconds <= 0) return undefined;
+  return Math.floor((seconds + 59) / 60);
+}
+
 function normalizeRateLimitWindow(value: unknown): CodexRateLimitWindow | undefined {
-  const record = asObject(value);
+  const record = asObject(unwrapOptionalArray(value));
   if (!record) return undefined;
   const usedPercent = normalizeUsedPercent(record.usedPercent ?? record.used_percent);
   const remainingPercent = normalizeUsedPercent(
@@ -85,8 +119,10 @@ function normalizeRateLimitWindow(value: unknown): CodexRateLimitWindow | undefi
         : undefined;
   if (normalizedUsedPercent === undefined) return undefined;
 
-  const windowDurationMins = asNumber(record.windowDurationMins ?? record.window_duration_mins);
-  const rawResetsAt = asNumber(record.resetsAt ?? record.resets_at);
+  const windowDurationMins =
+    asNumber(record.windowDurationMins ?? record.window_duration_mins) ??
+    windowMinutesFromSeconds(record.limitWindowSeconds ?? record.limit_window_seconds);
+  const rawResetsAt = asNumber(record.resetsAt ?? record.resets_at ?? record.resetAt ?? record.reset_at);
   const resetsAt =
     rawResetsAt !== undefined && rawResetsAt > 1_000_000_000_000
       ? Math.floor(rawResetsAt / 1_000)
@@ -102,28 +138,55 @@ function normalizeRateLimitWindow(value: unknown): CodexRateLimitWindow | undefi
 }
 
 function normalizeRateLimits(value: unknown): CodexRateLimits | undefined {
-  const record = asObject(value);
+  const record = asObject(unwrapOptionalArray(value));
   if (!record) return undefined;
 
-  const primary = normalizeRateLimitWindow(record.primary);
-  const secondary = normalizeRateLimitWindow(record.secondary);
-  const credits = asObject(record.credits);
+  const topLevelRateLimit = asObject(
+    firstArrayItem(record.rateLimit ?? record.rate_limit),
+  );
+  const additionalRateLimitDetails = asArray(
+    record.additionalRateLimits ?? record.additional_rate_limits,
+  );
 
-  if (!primary && !secondary && !credits) {
+  const additionalRateLimitRecord = asObject(
+    firstArrayItem(
+      additionalRateLimitDetails?.[0] &&
+        asObject(additionalRateLimitDetails[0])?.rate_limit,
+    ),
+  );
+
+  const primary =
+    normalizeRateLimitWindow(record.primary) ??
+    normalizeRateLimitWindow(record.primaryWindow ?? record.primary_window) ??
+    normalizeRateLimitWindow(topLevelRateLimit?.primaryWindow ?? topLevelRateLimit?.primary_window) ??
+    normalizeRateLimitWindow(additionalRateLimitRecord?.primaryWindow ?? additionalRateLimitRecord?.primary_window);
+
+  const secondary =
+    normalizeRateLimitWindow(record.secondary) ??
+    normalizeRateLimitWindow(record.secondaryWindow ?? record.secondary_window) ??
+    normalizeRateLimitWindow(topLevelRateLimit?.secondaryWindow ?? topLevelRateLimit?.secondary_window) ??
+    normalizeRateLimitWindow(additionalRateLimitRecord?.secondaryWindow ?? additionalRateLimitRecord?.secondary_window);
+
+  const credits = asObject(
+    firstArrayItem(record.credits ?? topLevelRateLimit?.credits),
+  );
+
+  const limitId = asString(record.limitId ?? record.limit_id ?? topLevelRateLimit?.limit_id);
+  const limitNameCandidate = record.limitName ?? record.limit_name ?? topLevelRateLimit?.limit_name;
+  const planType = asKnownString(record.planType ?? record.plan_type ?? topLevelRateLimit?.plan_type);
+
+  if (!primary && !secondary && !credits && !limitId && limitNameCandidate == null && !planType) {
     return undefined;
   }
 
   return {
-    ...(asString(record.limitId ?? record.limit_id)
-      ? { limitId: asString(record.limitId ?? record.limit_id) }
+    ...(limitId ? { limitId } : {}),
+    ...(typeof limitNameCandidate === "string" || limitNameCandidate === null
+      ? {
+          limitName: limitNameCandidate as string | null,
+        }
       : {}),
-    ...(typeof (record.limitName ?? record.limit_name) === "string" ||
-    (record.limitName ?? record.limit_name) === null
-      ? { limitName: (record.limitName ?? record.limit_name) as string | null }
-      : {}),
-    ...(asKnownString(record.planType ?? record.plan_type)
-      ? { planType: asKnownString(record.planType ?? record.plan_type) }
-      : {}),
+    ...(planType ? { planType } : {}),
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
     ...(credits
@@ -399,7 +462,13 @@ export async function readCodexAccountProfile(
     const account = asObject(accountPayload?.account) ?? accountPayload;
 
     const rateLimitsPayload = asObject(rateLimitsRead.result);
-    const rateLimits = normalizeRateLimits(rateLimitsPayload?.rateLimits ?? rateLimitsPayload);
+    const rateLimits = normalizeRateLimits(
+      rateLimitsPayload?.rateLimits ??
+        rateLimitsPayload?.rate_limits ??
+        rateLimitsPayload?.status ??
+        rateLimitsPayload?.payload ??
+        rateLimitsPayload,
+    );
 
     const type = normalizeAccountType(asKnownString(account?.type));
     const email = asString(account?.email);
