@@ -261,6 +261,19 @@ async function readProfileFromAuthJson(
   }
 }
 
+export async function readCodexAccountProfileFromAuthJson(
+  profilePath: string,
+): Promise<CodexAccountProfile | undefined> {
+  const profile = await readProfileFromAuthJson(profilePath).catch(() => undefined);
+  if (!profile) {
+    return undefined;
+  }
+  return {
+    ...profile,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
 async function sendJsonRpcRequest(params: {
   readonly write: (value: string) => void;
   readonly pending: Map<number, (response: JsonRpcResponse) => void>;
@@ -292,7 +305,9 @@ export async function readCodexAccountProfile(
   profilePath: string,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
 ): Promise<CodexAccountProfile | undefined> {
-  const authProfile = await readProfileFromAuthJson(profilePath).catch(() => undefined);
+  const authProfile = await readCodexAccountProfileFromAuthJson(profilePath).catch(
+    () => undefined,
+  );
   const child = spawn("codex", ["app-server"], {
     env: {
       ...process.env,

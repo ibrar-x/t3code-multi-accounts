@@ -4,12 +4,16 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
   AccountCheckResponse,
+  CodexAccountProfile,
   ProviderAccount,
   ProviderKind,
 } from "@t3tools/contracts";
 import type { CredentialIsolationStrategy, CredentialLoginOptions } from "./credentialStrategy.ts";
 import { ACCOUNTS_DIR, type AccountStore, createAccountStore } from "./accountStore.ts";
-import { readCodexAccountProfile } from "./codexProfileProbe.ts";
+import {
+  readCodexAccountProfile,
+  readCodexAccountProfileFromAuthJson,
+} from "./codexProfileProbe.ts";
 import { getStrategy, hasStrategy } from "./strategies/registry.ts";
 
 const PROVIDER_FILE = "provider.json";
@@ -39,6 +43,9 @@ export interface AccountManagerOptions {
   readonly getStrategy?: (providerKind: ProviderKind) => CredentialIsolationStrategy;
   readonly hasStrategy?: (providerKind: ProviderKind) => boolean;
   readonly readCodexProfile?: (profilePath: string) => Promise<ProviderAccount["codexProfile"] | undefined>;
+  readonly readCodexProfileFromAuthJson?: (
+    profilePath: string,
+  ) => Promise<ProviderAccount["codexProfile"] | undefined>;
   readonly generateId?: () => string;
   readonly now?: () => Date;
 }
@@ -95,28 +102,167 @@ async function readProviderKind(profilePath: string): Promise<ProviderKind | nul
   }
 }
 
+function hasCodexProfileDetails(profile: CodexAccountProfile | undefined): boolean {
+  if (!profile) {
+    return false;
+  }
+  return Boolean(
+    profile.type || profile.email || profile.name || profile.planType || profile.rateLimits,
+  );
+}
+
+function codexProfileWithoutSyncedAt(
+  profile: CodexAccountProfile | undefined,
+): Omit<CodexAccountProfile, "syncedAt"> | undefined {
+  if (!profile) {
+    return undefined;
+  }
+  const { syncedAt: _syncedAt, ...rest } = profile;
+  return rest;
+}
+
+function codexProfileChanged(
+  currentProfile: CodexAccountProfile | undefined,
+  nextProfile: CodexAccountProfile | undefined,
+): boolean {
+  return (
+    JSON.stringify(codexProfileWithoutSyncedAt(currentProfile)) !==
+    JSON.stringify(codexProfileWithoutSyncedAt(nextProfile))
+  );
+}
+
+function pickPreferredCodexProfile(
+  currentProfile: CodexAccountProfile | undefined,
+  preferredProfile: CodexAccountProfile | undefined,
+  fallbackProfile?: CodexAccountProfile | undefined,
+): CodexAccountProfile | undefined {
+  const nextProfile = preferredProfile ?? fallbackProfile;
+  if (!hasCodexProfileDetails(nextProfile)) {
+    return currentProfile;
+  }
+  if (!codexProfileChanged(currentProfile, nextProfile)) {
+    return currentProfile;
+  }
+  return nextProfile;
+}
+
+function normalizeComparable(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function codexProfilesLikelySameIdentity(
+  left: CodexAccountProfile | undefined,
+  right: CodexAccountProfile | undefined,
+): boolean {
+  const leftEmail = normalizeComparable(left?.email);
+  const rightEmail = normalizeComparable(right?.email);
+  if (!leftEmail || !rightEmail || leftEmail !== rightEmail) {
+    return false;
+  }
+
+  const leftType = normalizeComparable(left?.type);
+  const rightType = normalizeComparable(right?.type);
+  if (!leftType || !rightType) {
+    return true;
+  }
+  return leftType === rightType;
+}
+
+function isDuplicateDefaultCodexAccount(
+  account: ProviderAccount,
+  defaultProfilePath: string,
+  defaultProfile: CodexAccountProfile,
+): boolean {
+  if (account.providerKind !== "codex") {
+    return false;
+  }
+
+  if (path.resolve(account.profilePath) === path.resolve(defaultProfilePath)) {
+    return true;
+  }
+
+  return codexProfilesLikelySameIdentity(account.codexProfile, defaultProfile);
+}
+
 export function createAccountManager(options: AccountManagerOptions = {}): AccountManager {
   const accountsDir = path.resolve(options.accountsDir ?? ACCOUNTS_DIR);
   const store = options.store ?? createAccountStore({ storePath: path.join(accountsDir, "accounts.json") });
   const resolveStrategy = options.getStrategy ?? getStrategy;
   const supportsProvider = options.hasStrategy ?? hasStrategy;
   const readCodexProfile = options.readCodexProfile ?? readCodexAccountProfile;
+  const readCodexProfileFromAuthJson =
+    options.readCodexProfileFromAuthJson ?? readCodexAccountProfileFromAuthJson;
   const generateId = options.generateId ?? createDefaultAccountId;
   const now = options.now ?? (() => new Date());
+
+  async function refreshPersistedCodexMetadata(account: ProviderAccount): Promise<ProviderAccount> {
+    if (account.providerKind !== "codex" || !supportsProvider("codex") || account.isDefault) {
+      return account;
+    }
+
+    const strategy = resolveStrategy("codex");
+    const safeProfilePath = assertProfilePathWithinAccountsDir(account.profilePath, accountsDir);
+    const status = await strategy.checkCredentials(safeProfilePath).catch(() => ({
+      valid: false,
+      reason: "missing" as const,
+    }));
+
+    let nextProfile = account.codexProfile;
+    if (status.valid) {
+      const authProfile = await readCodexProfileFromAuthJson(safeProfilePath).catch(() => undefined);
+      const profileWithRateLimits =
+        authProfile?.rateLimits || authProfile?.planType
+          ? authProfile
+          : await readCodexProfile(safeProfilePath).catch(() => undefined);
+      nextProfile = pickPreferredCodexProfile(account.codexProfile, profileWithRateLimits, authProfile);
+    }
+
+    const nextAccount: ProviderAccount = {
+      ...account,
+      ...(status.valid ? { credentialStatus: "ok" as const } : { credentialStatus: status.reason }),
+      ...(nextProfile ? { codexProfile: nextProfile } : {}),
+    };
+
+    if (JSON.stringify(nextAccount) !== JSON.stringify(account)) {
+      await store.updateAccount(nextAccount).catch(() => undefined);
+    }
+
+    return nextAccount;
+  }
 
   return {
     async listAccounts() {
       const persistedAccounts = await store.listAccounts();
+      const hydratedAccounts = await Promise.all(
+        persistedAccounts.map(async (account) => {
+          try {
+            return await refreshPersistedCodexMetadata(account);
+          } catch {
+            return account;
+          }
+        }),
+      );
       if (!supportsProvider("codex")) {
-        return persistedAccounts;
+        return hydratedAccounts;
       }
 
       const defaultProfilePath = path.resolve(
         process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"),
       );
-      const defaultProfile = await readCodexProfile(defaultProfilePath).catch(() => undefined);
+      const defaultProfileFromAuth = await readCodexProfileFromAuthJson(defaultProfilePath).catch(
+        () => undefined,
+      );
+      const defaultProfile =
+        defaultProfileFromAuth?.rateLimits || defaultProfileFromAuth?.planType
+          ? defaultProfileFromAuth
+          : (await readCodexProfile(defaultProfilePath).catch(() => undefined)) ??
+            defaultProfileFromAuth;
       if (!defaultProfile) {
-        return persistedAccounts;
+        return hydratedAccounts;
       }
 
       const codexStatus = await resolveStrategy("codex")
@@ -125,6 +271,34 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
 
       const defaultName =
         defaultProfile.name?.trim() || defaultProfile.email?.trim() || "Default system credentials";
+
+      const persistedWithoutSyntheticDefault = hydratedAccounts.filter(
+        (account) => account.id !== DEFAULT_CODEX_ACCOUNT_ID,
+      );
+      const duplicatePersistedDefault = persistedWithoutSyntheticDefault.find((account) =>
+        isDuplicateDefaultCodexAccount(account, defaultProfilePath, defaultProfile),
+      );
+      if (duplicatePersistedDefault) {
+        const mergedDuplicateProfile = pickPreferredCodexProfile(
+          duplicatePersistedDefault.codexProfile,
+          defaultProfile,
+        );
+        const mergedDuplicateAccount: ProviderAccount = {
+          ...duplicatePersistedDefault,
+          ...(codexStatus.valid
+            ? { credentialStatus: "ok" as const }
+            : { credentialStatus: codexStatus.reason }),
+          ...(mergedDuplicateProfile ? { codexProfile: mergedDuplicateProfile } : {}),
+        };
+        if (JSON.stringify(mergedDuplicateAccount) !== JSON.stringify(duplicatePersistedDefault)) {
+          await store.updateAccount(mergedDuplicateAccount).catch(() => undefined);
+          return persistedWithoutSyntheticDefault.map((account) =>
+            account.id === mergedDuplicateAccount.id ? mergedDuplicateAccount : account,
+          );
+        }
+        return persistedWithoutSyntheticDefault;
+      }
+
       const defaultAccount: ProviderAccount = {
         id: DEFAULT_CODEX_ACCOUNT_ID,
         providerKind: "codex",
@@ -138,7 +312,7 @@ export function createAccountManager(options: AccountManagerOptions = {}): Accou
       };
 
       return [
-        ...persistedAccounts.filter((account) => account.id !== DEFAULT_CODEX_ACCOUNT_ID),
+        ...persistedWithoutSyntheticDefault,
         defaultAccount,
       ];
     },

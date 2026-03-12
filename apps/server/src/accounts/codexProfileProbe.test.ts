@@ -5,7 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readCodexAccountProfile } from "./codexProfileProbe.ts";
+import {
+  readCodexAccountProfile,
+  readCodexAccountProfileFromAuthJson,
+} from "./codexProfileProbe.ts";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(),
@@ -74,6 +77,30 @@ afterEach(async () => {
 });
 
 describe("readCodexAccountProfile", () => {
+  it("reads account profile details from auth.json without app-server", async () => {
+    const profilePath = await makeProfileDir({
+      auth_mode: "chatgpt",
+      tokens: {
+        id_token: makeIdToken({
+          email: "profile@example.com",
+          name: "Profile User",
+          "https://api.openai.com/auth": {
+            chatgpt_plan_type: "pro",
+          },
+        }),
+      },
+    });
+
+    const profile = await readCodexAccountProfileFromAuthJson(profilePath);
+    expect(profile).toMatchObject({
+      type: "chatgpt",
+      email: "profile@example.com",
+      name: "Profile User",
+      planType: "pro",
+    });
+    expect(profile?.syncedAt).toMatch(/\d{4}-\d{2}-\d{2}T/);
+  });
+
   it("falls back to auth.json token metadata when app-server exits early", async () => {
     const profilePath = await makeProfileDir({
       auth_mode: "chatgpt",

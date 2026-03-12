@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProviderKind } from "@t3tools/contracts";
+import type { CodexAccountProfile, ProviderKind } from "@t3tools/contracts";
 import { createAccountManager } from "./accountManager.ts";
 import { createAccountStore } from "./accountStore.ts";
 import type { CredentialIsolationStrategy, CredentialStatus } from "./credentialStrategy.ts";
@@ -70,6 +70,10 @@ function createFixtureManager(input: {
   readonly strategyByProvider: Map<ProviderKind, MockStrategy>;
   readonly nowIso?: string;
   readonly idFactory?: () => string;
+  readonly readCodexProfile?: (profilePath: string) => Promise<CodexAccountProfile | undefined>;
+  readonly readCodexProfileFromAuthJson?: (
+    profilePath: string,
+  ) => Promise<CodexAccountProfile | undefined>;
 }) {
   return createAccountManager({
     accountsDir: input.accountsDir,
@@ -84,7 +88,8 @@ function createFixtureManager(input: {
     },
     now: () => new Date(input.nowIso ?? "2026-01-01T00:00:00.000Z"),
     generateId: input.idFactory ?? (() => "acc_fixed"),
-    readCodexProfile: async () => undefined,
+    readCodexProfile: input.readCodexProfile ?? (async () => undefined),
+    readCodexProfileFromAuthJson: input.readCodexProfileFromAuthJson ?? (async () => undefined),
   });
 }
 
@@ -241,5 +246,72 @@ describe("accountManager", () => {
         reason: "missing",
       }),
     );
+  });
+
+  it("hydrates persisted codex account details from auth profile reads during list", async () => {
+    const fixture = await makeFixture();
+    const account = await fixture.manager.addAccount("codex", "Personal");
+
+    const manager = createFixtureManager({
+      accountsDir: fixture.accountsDir,
+      storePath: fixture.storePath,
+      strategyByProvider: fixture.strategyByProvider,
+      readCodexProfileFromAuthJson: async (profilePath) =>
+        profilePath === account.profilePath
+          ? {
+              type: "chatgpt",
+              email: "personal@example.com",
+              name: "Personal Plus",
+              planType: "plus",
+              syncedAt: "2026-01-01T00:00:00.000Z",
+            }
+          : undefined,
+    });
+
+    const list = await manager.listAccounts();
+    const hydrated = list.find((entry) => entry.id === account.id);
+    expect(hydrated?.credentialStatus).toBe("ok");
+    expect(hydrated?.codexProfile).toMatchObject({
+      email: "personal@example.com",
+      name: "Personal Plus",
+      planType: "plus",
+      type: "chatgpt",
+    });
+  });
+
+  it("does not duplicate system default when persisted codex account matches the same identity", async () => {
+    const fixture = await makeFixture();
+    const account = await fixture.manager.addAccount("codex", "Personal Plus");
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = account.profilePath;
+
+    try {
+      const manager = createFixtureManager({
+        accountsDir: fixture.accountsDir,
+        storePath: fixture.storePath,
+        strategyByProvider: fixture.strategyByProvider,
+        readCodexProfileFromAuthJson: async (profilePath) =>
+          profilePath === account.profilePath
+            ? {
+                type: "chatgpt",
+                email: "personal@example.com",
+                name: "Personal Plus",
+                planType: "plus",
+                syncedAt: "2026-01-01T00:00:00.000Z",
+              }
+            : undefined,
+      });
+
+      const listed = await manager.listAccounts();
+      expect(listed).toHaveLength(1);
+      expect(listed[0]?.id).toBe(account.id);
+      expect(listed[0]?.isDefault).toBe(false);
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+    }
   });
 });
