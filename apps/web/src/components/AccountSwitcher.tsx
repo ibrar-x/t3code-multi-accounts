@@ -443,9 +443,10 @@ export function AccountSwitcher({
       const applied = applySelectionForProvider(provider, value);
       if (applied) {
         setInlineError(null);
+        void refreshSessionRateLimitDetails({ includeList: false });
       }
     },
-    [applySelectionForProvider, provider],
+    [applySelectionForProvider, provider, refreshSessionRateLimitDetails],
   );
 
   useEffect(
@@ -503,6 +504,7 @@ export function AccountSwitcher({
             if (selectedValue && applySelectionForProvider(sequence.provider, selectedValue)) {
               if (sequence.provider === provider) {
                 setIsOpen(false);
+                void refreshSessionRateLimitDetails({ includeList: false });
               }
               setInlineError(null);
             }
@@ -556,6 +558,7 @@ export function AccountSwitcher({
         if (applySelectionForProvider(targetProvider, selectedValue)) {
           if (targetProvider === provider) {
             setIsOpen(false);
+            void refreshSessionRateLimitDetails({ includeList: false });
           }
           setInlineError(null);
         }
@@ -584,6 +587,7 @@ export function AccountSwitcher({
       if (applySelectionForProvider(targetProvider, selectedValue)) {
         if (targetProvider === provider) {
           setIsOpen(false);
+          void refreshSessionRateLimitDetails({ includeList: false });
         }
         setInlineError(null);
       }
@@ -593,7 +597,14 @@ export function AccountSwitcher({
     return () => {
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [applySelectionForProvider, disabled, keybindings, provider, variant]);
+  }, [
+    applySelectionForProvider,
+    disabled,
+    keybindings,
+    provider,
+    refreshSessionRateLimitDetails,
+    variant,
+  ]);
 
   const submitConnectAccount = useCallback(async () => {
     if (provider !== "codex") {
@@ -658,27 +669,10 @@ export function AccountSwitcher({
       : activeAccount?.name ?? defaultAccountDisplayLabel(defaultProviderAccount);
   const contextWindowFullPercent =
     primaryUsedPercent ?? (primaryRemainingPercent !== null ? 100 - primaryRemainingPercent : null);
-  const creditsBalance = detailsAccount?.codexProfile?.rateLimits?.credits?.balance?.trim() || null;
-  const remainingLimitLine =
-    primaryRemainingPercent !== null
-      ? `${primaryRemainingPercent}% remaining`
-      : creditsBalance && creditsBalance.length > 0
-        ? creditsBalance.includes("/")
-          ? creditsBalance
-          : `${creditsBalance} remaining`
-        : "Refreshing usage...";
-  const contextUsageLine =
-    creditsBalance && creditsBalance.length > 0
-      ? creditsBalance.includes("/")
-        ? `${creditsBalance} tokens used`
-        : `${creditsBalance} credits remaining`
-      : contextWindowFullPercent !== null && primaryRemainingPercent !== null
-        ? `${contextWindowFullPercent}% used · ${primaryRemainingPercent}% remaining`
-        : contextWindowFullPercent !== null
-        ? `${contextWindowFullPercent}% used`
-      : primaryRemainingPercent !== null
-        ? `${primaryRemainingPercent}% remaining`
-        : "Refreshing usage details...";
+  const remainingContextLine =
+    primaryRemainingPercent !== null ? `${primaryRemainingPercent}% remaining` : "Refreshing...";
+  const fullContextLine =
+    contextWindowFullPercent !== null ? `${contextWindowFullPercent}% full` : "Refreshing...";
   const providerCycleCommand = `account.${provider}.cycle` as const;
   const providerOpenCommand = `account.${provider}.open` as const;
   const openSwitcherShortcutLabel =
@@ -724,12 +718,9 @@ export function AccountSwitcher({
           </TooltipTrigger>
           <TooltipPopup side="top" sideOffset={8} className="w-60 whitespace-normal px-3 py-2">
             <div className="space-y-1 text-center">
-              <p className="text-xs text-muted-foreground">Remaining limit:</p>
-              <p className="text-xl font-semibold leading-none">{remainingLimitLine}</p>
-              <p className="text-sm font-medium">{contextUsageLine}</p>
-              <p className="pt-1 text-sm text-muted-foreground">
-                The active provider manages context automatically
-              </p>
+              <p className="text-xs text-muted-foreground">Remaining context</p>
+              <p className="text-xl font-semibold leading-none">{remainingContextLine}</p>
+              <p className="pt-1 text-sm font-medium">{fullContextLine}</p>
             </div>
           </TooltipPopup>
         </Tooltip>
