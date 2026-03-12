@@ -198,6 +198,7 @@ export function createWsNativeApi(): NativeApi {
       add: (input) => transport.request(WS_METHODS.accountsAdd, input),
       remove: (input) => transport.request(WS_METHODS.accountsRemove, input),
       check: (input) => transport.request(WS_METHODS.accountsCheck, input),
+      current: (input) => transport.request(WS_METHODS.accountsCurrent, input),
       supported: () => transport.request(WS_METHODS.accountsSupported),
     },
     orchestration: {

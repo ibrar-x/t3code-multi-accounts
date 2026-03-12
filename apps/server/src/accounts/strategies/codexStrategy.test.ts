@@ -456,4 +456,68 @@ describe("CodexCredentialStrategy", () => {
 
     await expect(fs.stat(profilePath)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("runs codex logout before removing a profile with auth credentials", async () => {
+    const profilePath = await makeTempDir();
+    const authPath = path.join(profilePath, "auth.json");
+    await fs.writeFile(
+      authPath,
+      JSON.stringify({ tokens: { access_token: "token", refresh_token: "refresh" } }),
+      "utf8",
+    );
+    const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (command, args, options) => {
+        spawnCalls.push({ command, args, options });
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          child.emit("close", 0);
+        });
+        return child;
+      },
+      warningLogger: () => undefined,
+    });
+
+    await strategy.removeProfile(profilePath);
+
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]?.command).toBe("codex");
+    expect(spawnCalls[0]?.args).toEqual(["logout"]);
+    expect(spawnCalls[0]?.options.env?.CODEX_HOME).toBe(profilePath);
+    await expect(fs.stat(profilePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("still removes the profile when codex logout fails", async () => {
+    const profilePath = await makeTempDir();
+    const authPath = path.join(profilePath, "auth.json");
+    await fs.writeFile(
+      authPath,
+      JSON.stringify({ tokens: { access_token: "token", refresh_token: "refresh" } }),
+      "utf8",
+    );
+    const warningLogger = vi.fn();
+
+    const strategy = new CodexCredentialStrategy({
+      spawnImpl: (_command, _args) => {
+        const child = new EventEmitter() as ChildProcess;
+        child.stdout = new EventEmitter() as unknown as ChildProcess["stdout"];
+        child.stderr = new EventEmitter() as unknown as ChildProcess["stderr"];
+        queueMicrotask(() => {
+          (child.stderr as EventEmitter).emit("data", "logout failed");
+          child.emit("close", 1);
+        });
+        return child;
+      },
+      warningLogger,
+    });
+
+    await strategy.removeProfile(profilePath);
+    expect(warningLogger).toHaveBeenCalledWith(
+      expect.stringContaining("Best-effort codex logout failed"),
+    );
+    await expect(fs.stat(profilePath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });

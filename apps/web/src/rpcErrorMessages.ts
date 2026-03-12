@@ -13,6 +13,8 @@ const TIMEOUT_MESSAGE_BY_METHOD: Partial<Record<string, string>> = {
     "Connecting the account is taking too long. If you closed login, no account was added.",
   [WS_METHODS.accountsList]:
     "Loading accounts is taking too long. Try refreshing Accounts again.",
+  [WS_METHODS.accountsCurrent]:
+    "Loading active account details is taking too long. Try refreshing account details again.",
 };
 
 const GENERIC_TIMEOUT_MESSAGE = "This request is taking too long. Please try again.";
@@ -54,4 +56,3 @@ export function formatRpcServerError(method: string, message: string): string {
   const override = SERVER_MESSAGE_OVERRIDES.find((entry) => entry.match(method, trimmed));
   return override?.replace ?? trimmed;
 }
-

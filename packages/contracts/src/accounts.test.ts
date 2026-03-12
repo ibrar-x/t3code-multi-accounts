@@ -4,6 +4,8 @@ import { Schema } from "effect";
 import {
   AccountAddRequest,
   AccountCheckResponse,
+  AccountCurrentRequest,
+  AccountCurrentResponse,
   AccountSupportedProvidersResponse,
   MultiAccountSettings,
   ProviderAccount,
@@ -13,6 +15,8 @@ const decodeProviderAccount = Schema.decodeUnknownSync(ProviderAccount);
 const decodeMultiAccountSettings = Schema.decodeUnknownSync(MultiAccountSettings);
 const decodeAccountAddRequest = Schema.decodeUnknownSync(AccountAddRequest);
 const decodeAccountCheckResponse = Schema.decodeUnknownSync(AccountCheckResponse);
+const decodeAccountCurrentRequest = Schema.decodeUnknownSync(AccountCurrentRequest);
+const decodeAccountCurrentResponse = Schema.decodeUnknownSync(AccountCurrentResponse);
 const decodeAccountSupportedProvidersResponse = Schema.decodeUnknownSync(
   AccountSupportedProvidersResponse,
 );
@@ -118,5 +122,30 @@ describe("account payload schemas", () => {
     });
 
     expect(parsed.providers).toEqual(["codex", "claudeCode"]);
+  });
+
+  it("decodes current account request and response payloads", () => {
+    const request = decodeAccountCurrentRequest({
+      providerKind: "codex",
+      threadId: "thread_1",
+    });
+    expect(request.providerKind).toBe("codex");
+    expect(request.threadId).toBe("thread_1");
+
+    const response = decodeAccountCurrentResponse({
+      providerKind: "codex",
+      account: {
+        id: "acc_codex_1",
+        providerKind: "codex",
+        name: "Work",
+        profilePath: "/Users/me/.t3code/accounts/acc_codex_1",
+        isDefault: false,
+        credentialStatus: "ok",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        lastUsedAt: null,
+      },
+    });
+    expect(response.providerKind).toBe("codex");
+    expect(response.account?.id).toBe("acc_codex_1");
   });
 });

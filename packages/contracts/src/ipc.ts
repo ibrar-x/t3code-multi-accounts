@@ -52,6 +52,8 @@ import type {
   AccountAddResponse,
   AccountCheckRequest,
   AccountCheckResponse,
+  AccountCurrentRequest,
+  AccountCurrentResponse,
   AccountListRequest,
   AccountListResponse,
   AccountRemoveRequest,
@@ -164,6 +166,7 @@ export interface NativeApi {
     add: (input: AccountAddRequest) => Promise<AccountAddResponse>;
     remove: (input: AccountRemoveRequest) => Promise<AccountRemoveResponse>;
     check: (input: AccountCheckRequest) => Promise<AccountCheckResponse>;
+    current: (input: AccountCurrentRequest) => Promise<AccountCurrentResponse>;
     supported: () => Promise<AccountSupportedProvidersResponse>;
   };
   orchestration: {

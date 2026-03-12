@@ -20,7 +20,8 @@ export function toAccountActionErrorMessage(error: unknown, fallback: string): s
   }
   if (
     normalized.includes("request timed out: accounts.list") ||
-    normalized.includes("request timed out: accounts.supported")
+    normalized.includes("request timed out: accounts.supported") ||
+    normalized.includes("request timed out: accounts.current")
   ) {
     return ACCOUNTS_LIST_TIMEOUT_MESSAGE;
   }

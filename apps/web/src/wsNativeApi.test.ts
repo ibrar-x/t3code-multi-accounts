@@ -415,6 +415,7 @@ describe("wsNativeApi", () => {
     await api.accounts.add({ providerKind: "codex", name: "Work" });
     await api.accounts.remove({ accountId: "acc_1", accounts: [] });
     await api.accounts.check({ accountId: "acc_1", accounts: [] });
+    await api.accounts.current({ providerKind: "codex", threadId: ThreadId.makeUnsafe("thread-1") });
     await api.accounts.supported();
 
     expect(requestMock).toHaveBeenNthCalledWith(1, WS_METHODS.accountsList, { accounts: [] });
@@ -430,7 +431,11 @@ describe("wsNativeApi", () => {
       accountId: "acc_1",
       accounts: [],
     });
-    expect(requestMock).toHaveBeenNthCalledWith(5, WS_METHODS.accountsSupported);
+    expect(requestMock).toHaveBeenNthCalledWith(5, WS_METHODS.accountsCurrent, {
+      providerKind: "codex",
+      threadId: "thread-1",
+    });
+    expect(requestMock).toHaveBeenNthCalledWith(6, WS_METHODS.accountsSupported);
   });
 
   it("forwards full-thread diff requests to the orchestration websocket method", async () => {

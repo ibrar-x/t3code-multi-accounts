@@ -59,7 +59,7 @@ function normalizeAccountName(name: string): string {
 }
 
 const loginInProgress = new Set<string>();
-const DEFAULT_CODEX_ACCOUNT_ID = "acc_codex_default_system";
+export const DEFAULT_CODEX_ACCOUNT_ID = "acc_codex_default_system";
 
 async function resolveAccount(
   store: AccountStore,

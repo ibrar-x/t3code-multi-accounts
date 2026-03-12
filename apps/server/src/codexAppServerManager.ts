@@ -285,6 +285,9 @@ You SHOULD ask many questions, but each question must:
 When running shell commands that invoke \`codex\`, always use the active session \`CODEX_HOME\` context.
 - Prefer \`$CODEX_HOME/auth.json\` when checking login/account details.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
+- For "current logged in account" details, use a single auth-file read/parse step first; do not run multi-step discovery commands.
+- Use \`codex login status\` only as a fallback when auth.json is missing or malformed.
+- Avoid exploratory commands like \`codex --help\`, \`ls\`, or repeated probes for this task.
 
 Use the \`request_user_input\` tool only for decisions that materially change the plan, for confirming important assumptions, or for information that cannot be discovered via non-mutating exploration.
 
@@ -351,7 +354,9 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 When running shell commands that invoke \`codex\`, or when inspecting authentication/account details, use the active session environment:
 - Prefer \`$CODEX_HOME/auth.json\` when \`CODEX_HOME\` is set.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
-- If running \`codex login status\`, ensure it runs in the current session environment so it reflects the selected account.
+- For "current logged in account" details, run a single auth-file read/parse first; avoid multi-step discovery command chains.
+- Run \`codex login status\` only as fallback when auth.json is missing/malformed, and run it in the current session environment.
+- Avoid exploratory commands like \`codex --help\`, \`ls\`, or repeated probes for this task.
 </collaboration_mode>`;
 
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {

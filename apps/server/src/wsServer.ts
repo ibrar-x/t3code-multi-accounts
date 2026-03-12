@@ -7,6 +7,7 @@
  * @module Server
  */
 import http from "node:http";
+import os from "node:os";
 import type { Duplex } from "node:stream";
 
 import Mime from "@effect/platform-node/Mime";
@@ -73,8 +74,9 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { expandHomePath } from "./os-jank.ts";
-import { accountManager } from "./accounts/accountManager.ts";
-import { getSupportedProviders } from "./accounts/strategies/registry.ts";
+import { DEFAULT_CODEX_ACCOUNT_ID, accountManager } from "./accounts/accountManager.ts";
+import { readCodexAccountProfileFromAuthJson } from "./accounts/codexProfileProbe.ts";
+import { getStrategy, getSupportedProviders } from "./accounts/strategies/registry.ts";
 import { runProcess } from "./processRunner";
 
 /**
@@ -1133,8 +1135,100 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                 cause instanceof Error
                   ? cause.message
                   : `Failed to check account "${body.accountId}".`,
-            }),
+          }),
         });
+      }
+
+      case WS_METHODS.accountsCurrent: {
+        const body = stripRequestTag(request.body);
+        const providerKind = body.providerKind ?? "codex";
+        if (providerKind !== "codex") {
+          return {
+            providerKind,
+            account: undefined,
+          };
+        }
+
+        let threadAccountId: string | null = null;
+        if (body.threadId) {
+          const providerService = yield* ProviderService;
+          const providerServiceWithThreadAccount = providerService as typeof providerService & {
+            readonly getThreadAccountId?: (threadId: ThreadId) => Effect.Effect<string | null>;
+          };
+          threadAccountId = providerServiceWithThreadAccount.getThreadAccountId
+            ? yield* providerServiceWithThreadAccount.getThreadAccountId(body.threadId)
+            : null;
+        }
+
+        if (threadAccountId) {
+          const account = yield* Effect.tryPromise({
+            try: () => accountManager.getAccountById(threadAccountId),
+            catch: (cause) =>
+              new RouteRequestError({
+                message: `Failed to read account "${threadAccountId}": ${String(cause)}`,
+              }),
+          });
+          if (account?.providerKind === "codex") {
+            const status = yield* Effect.tryPromise({
+              try: () => getStrategy("codex").checkCredentials(account.profilePath),
+              catch: () => ({ valid: false as const, reason: "missing" as const }),
+            });
+            const codexProfile = yield* Effect.tryPromise({
+              try: () => readCodexAccountProfileFromAuthJson(account.profilePath),
+              catch: () => undefined,
+            });
+            return {
+              providerKind,
+              account: {
+                ...account,
+                ...(status.valid
+                  ? { credentialStatus: "ok" as const }
+                  : { credentialStatus: status.reason }),
+                ...(codexProfile ? { codexProfile } : {}),
+              },
+            };
+          }
+        }
+
+        const defaultProfilePath = path.resolve(
+          process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex"),
+        );
+        const defaultProfile = yield* Effect.tryPromise({
+          try: () => readCodexAccountProfileFromAuthJson(defaultProfilePath),
+          catch: () => undefined,
+        });
+        if (!defaultProfile) {
+          return {
+            providerKind,
+            account: undefined,
+          };
+        }
+
+        const status = yield* Effect.tryPromise({
+          try: () => getStrategy("codex").checkCredentials(defaultProfilePath),
+          catch: () => ({ valid: false as const, reason: "missing" as const }),
+        });
+        const defaultName =
+          defaultProfile.name?.trim() ||
+          defaultProfile.email?.trim() ||
+          "Default system credentials";
+
+        return {
+          providerKind,
+          account: {
+            id: DEFAULT_CODEX_ACCOUNT_ID,
+            providerKind: "codex" as const,
+            name: defaultName,
+            profilePath: defaultProfilePath,
+            isDefault: true,
+            ...(status.valid
+              ? { credentialStatus: "ok" as const }
+              : { credentialStatus: status.reason }),
+            codexProfile: defaultProfile,
+            createdAt: "1970-01-01T00:00:00.000Z",
+            lastUsedAt: null,
+          },
+        };
       }
 
       case WS_METHODS.accountsSupported:

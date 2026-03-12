@@ -35,6 +35,7 @@ import { ServerSetKeybindingsConfigInput } from "./server";
 import {
   AccountAddRequest,
   AccountCheckRequest,
+  AccountCurrentRequest,
   AccountListRequest,
   AccountRemoveRequest,
 } from "./accounts";
@@ -83,6 +84,7 @@ export const WS_METHODS = {
   accountsAdd: "accounts.add",
   accountsRemove: "accounts.remove",
   accountsCheck: "accounts.check",
+  accountsCurrent: "accounts.current",
   accountsSupported: "accounts.supported",
 } as const;
 
@@ -155,6 +157,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.accountsAdd, AccountAddRequest),
   tagRequestBody(WS_METHODS.accountsRemove, AccountRemoveRequest),
   tagRequestBody(WS_METHODS.accountsCheck, AccountCheckRequest),
+  tagRequestBody(WS_METHODS.accountsCurrent, AccountCurrentRequest),
   tagRequestBody(WS_METHODS.accountsSupported, Schema.Struct({})),
 ]);
 

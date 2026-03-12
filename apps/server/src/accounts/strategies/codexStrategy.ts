@@ -371,6 +371,72 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   }
 
   async removeProfile(profilePath: string): Promise<void> {
+    const authPath = path.join(profilePath, "auth.json");
+    const hasAuthFile = await fs
+      .access(authPath)
+      .then(() => true)
+      .catch(() => false);
+
+    if (hasAuthFile) {
+      await this.runCodexLogout(profilePath).catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        this.warningLogger(
+          `[codexStrategy] Best-effort codex logout failed for "${profilePath}": ${detail}`,
+        );
+      });
+    }
+
     await fs.rm(profilePath, { recursive: true, force: true });
+  }
+
+  private runCodexLogout(profilePath: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const proc = this.spawnImpl("codex", ["logout"], {
+        env: { ...process.env, CODEX_HOME: profilePath },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const recentOutputLines: string[] = [];
+
+      const recordOutput = (rawChunk: string) => {
+        const chunk = rawChunk.trim();
+        if (!chunk) {
+          return;
+        }
+        for (const line of chunk.split(/\r?\n/)) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.length === 0) {
+            continue;
+          }
+          recentOutputLines.push(trimmedLine);
+          if (recentOutputLines.length > 6) {
+            recentOutputLines.shift();
+          }
+        }
+      };
+
+      proc.stdout?.setEncoding?.("utf8");
+      proc.stderr?.setEncoding?.("utf8");
+      proc.stdout?.on("data", (chunk: Buffer | string) => {
+        recordOutput(String(chunk));
+      });
+      proc.stderr?.on("data", (chunk: Buffer | string) => {
+        recordOutput(String(chunk));
+      });
+      proc.on("error", (error) => reject(error));
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        const detail = recentOutputLines.slice(-3).join(" | ");
+        reject(
+          new Error(
+            detail.length > 0
+              ? `codex logout exited with code ${String(code)}: ${detail}`
+              : `codex logout exited with code ${String(code)}`,
+          ),
+        );
+      });
+    });
   }
 }

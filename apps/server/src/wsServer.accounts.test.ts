@@ -21,6 +21,7 @@ import { Open, type OpenShape } from "./open";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
 import { accountManager } from "./accounts/accountManager";
+import * as CodexProfileProbe from "./accounts/codexProfileProbe.ts";
 
 interface PendingMessages {
   queue: unknown[];
@@ -311,5 +312,47 @@ describe("wsServer account method routing", () => {
     expect(response.result).toEqual({
       providers: expect.arrayContaining(["codex", "claudeCode"]),
     });
+  });
+
+  it("routes accounts.current for fast default codex snapshot", async () => {
+    const previousCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = "/tmp/t3code-current-account-test";
+    vi.spyOn(CodexProfileProbe, "readCodexAccountProfileFromAuthJson").mockResolvedValue({
+      type: "chatgpt",
+      email: "fast@example.com",
+      planType: "pro",
+      syncedAt: "2026-01-01T00:00:00.000Z",
+    });
+
+    try {
+      server = await createTestServer();
+      const address = server.address();
+      const port = typeof address === "object" && address !== null ? address.port : 0;
+      const ws = await connectWs(port);
+      sockets.push(ws);
+      await waitForMessage(ws); // welcome push
+
+      const response = await sendRequest(ws, WS_METHODS.accountsCurrent, {
+        providerKind: "codex",
+      });
+      expect(response.error).toBeUndefined();
+      expect(response.result).toEqual({
+        providerKind: "codex",
+        account: expect.objectContaining({
+          providerKind: "codex",
+          isDefault: true,
+          codexProfile: expect.objectContaining({
+            email: "fast@example.com",
+            planType: "pro",
+          }),
+        }),
+      });
+    } finally {
+      if (previousCodexHome === undefined) {
+        delete process.env.CODEX_HOME;
+      } else {
+        process.env.CODEX_HOME = previousCodexHome;
+      }
+    }
   });
 });

@@ -1,4 +1,4 @@
-import type { AccountCheckReason, ProviderAccount, ProviderKind } from "@t3tools/contracts";
+import type { AccountCheckReason, ProviderAccount, ProviderKind, ThreadId } from "@t3tools/contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -101,6 +101,7 @@ export interface AccountSwitcherProps {
   readonly disabled?: boolean;
   readonly variant?: "inline" | "panel";
   readonly sessionActive?: boolean;
+  readonly threadId?: ThreadId | null;
 }
 
 function readPrimaryRemainingPercent(account: ProviderAccount | null): number | null {
@@ -149,6 +150,7 @@ export function AccountSwitcher({
   disabled = false,
   variant = "inline",
   sessionActive = false,
+  threadId = null,
 }: AccountSwitcherProps) {
   const { settings, updateSettings } = useAppSettings();
   const hasHydratedAccountsRef = useRef(false);
@@ -159,6 +161,7 @@ export function AccountSwitcher({
   const [isConnecting, setIsConnecting] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [defaultProviderAccount, setDefaultProviderAccount] = useState<ProviderAccount | null>(null);
+  const [sessionProviderAccount, setSessionProviderAccount] = useState<ProviderAccount | null>(null);
 
   const providerAccounts = useMemo(
     () =>
@@ -170,7 +173,12 @@ export function AccountSwitcher({
 
   const activeAccountId = settings.multiAccount.activeAccountByProvider[provider] ?? null;
   const activeAccount = getActiveAccountForProvider(providerAccounts, activeAccountId);
-  const detailsAccount = activeAccount ?? defaultProviderAccount ?? providerAccounts[0] ?? null;
+  const detailsAccount =
+    (sessionActive ? sessionProviderAccount : null) ??
+    activeAccount ??
+    defaultProviderAccount ??
+    providerAccounts[0] ??
+    null;
 
   const selectedValue = activeAccount ? activeAccount.id : DEFAULT_OPTION_VALUE;
   const primaryRemainingPercent = readPrimaryRemainingPercent(detailsAccount);
@@ -221,6 +229,32 @@ export function AccountSwitcher({
 
       const currentMultiAccount = settingsRef.current.multiAccount;
       const selectedAccountId = currentMultiAccount.activeAccountByProvider[provider] ?? null;
+      const currentSnapshot = await api.accounts
+        .current({
+          providerKind: provider,
+          ...(threadId ? { threadId } : {}),
+        })
+        .catch(() => ({ account: undefined }));
+
+      if (currentSnapshot.account) {
+        if (currentSnapshot.account.isDefault) {
+          setDefaultProviderAccount(currentSnapshot.account);
+          setSessionProviderAccount(currentSnapshot.account);
+        } else {
+          setSessionProviderAccount(currentSnapshot.account);
+          const nextAccounts = upsertAccountById(currentMultiAccount.accounts, currentSnapshot.account);
+          const nextActive = cleanupActiveAccountByProvider(
+            currentMultiAccount.activeAccountByProvider,
+            nextAccounts,
+          );
+          commitMultiAccount({
+            accounts: nextAccounts,
+            activeAccountByProvider: nextActive,
+          });
+        }
+      } else {
+        setSessionProviderAccount(null);
+      }
 
       if (selectedAccountId) {
         try {
@@ -250,8 +284,15 @@ export function AccountSwitcher({
         }
       }
     },
-    [applyListedAccounts, commitMultiAccount, provider],
+    [applyListedAccounts, commitMultiAccount, provider, threadId],
   );
+
+  useEffect(() => {
+    if (sessionActive) {
+      return;
+    }
+    setSessionProviderAccount(null);
+  }, [sessionActive, threadId]);
 
   useEffect(() => {
     if (!activeAccountId) {

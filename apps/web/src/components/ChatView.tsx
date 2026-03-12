@@ -3883,6 +3883,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             disabled={isAccountSwitcherLocked}
             variant="inline"
             sessionActive={isAccountSessionActive}
+            threadId={activeThread?.id ?? null}
           />
         }
       />

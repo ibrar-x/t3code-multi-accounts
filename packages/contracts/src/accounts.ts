@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { IsoDateTime, TrimmedNonEmptyString } from "./baseSchemas";
+import { IsoDateTime, ThreadId, TrimmedNonEmptyString } from "./baseSchemas";
 import { ProviderKind } from "./orchestration";
 
 const AccountId = TrimmedNonEmptyString;
@@ -103,6 +103,12 @@ export const AccountCheckRequest = Schema.Struct({
 });
 export type AccountCheckRequest = typeof AccountCheckRequest.Type;
 
+export const AccountCurrentRequest = Schema.Struct({
+  providerKind: Schema.optional(ProviderKind),
+  threadId: Schema.optional(ThreadId),
+});
+export type AccountCurrentRequest = typeof AccountCurrentRequest.Type;
+
 export const AccountCheckResponse = Schema.Struct({
   accountId: AccountId,
   valid: Schema.Boolean,
@@ -110,6 +116,12 @@ export const AccountCheckResponse = Schema.Struct({
   account: Schema.optional(ProviderAccount),
 });
 export type AccountCheckResponse = typeof AccountCheckResponse.Type;
+
+export const AccountCurrentResponse = Schema.Struct({
+  providerKind: ProviderKind,
+  account: Schema.optional(ProviderAccount),
+});
+export type AccountCurrentResponse = typeof AccountCurrentResponse.Type;
 
 export const AccountListResponse = Schema.Struct({
   accounts: Schema.Array(ProviderAccount),
