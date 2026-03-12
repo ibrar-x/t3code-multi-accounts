@@ -612,6 +612,52 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("appends a failure activity and resets session state when turn start fails", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.sendTurn.mockImplementationOnce(
+      (_: unknown) => Effect.fail(new Error("simulated turn start timeout")) as never,
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-failure-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-turn-failure-1"),
+          role: "user",
+          text: "trigger failure",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+      return thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ?? false;
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.start.failed",
+    );
+
+    expect(failureActivity?.summary).toBe("Provider turn start failed");
+    expect(String((failureActivity?.payload as { detail?: unknown } | undefined)?.detail ?? "")).toContain(
+      "simulated turn start timeout",
+    );
+    expect(thread?.session?.status).toBe("error");
+    expect(thread?.session?.lastError).toContain("simulated turn start timeout");
+    expect(harness.stopSession.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("does not stop the active session when restart fails before rebind", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

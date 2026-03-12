@@ -96,11 +96,10 @@ describe("CodexCredentialStrategy", () => {
     expect(stat.isDirectory()).toBe(true);
   });
 
-  it("runs codex login, opens OAuth authorize URL, and injects CODEX_HOME", async () => {
+  it("runs codex login and injects CODEX_HOME without opening extra browser windows", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
     const spawnCalls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
-    const openUrl = vi.fn(async () => undefined);
 
     const strategy = new CodexCredentialStrategy({
       spawnImpl: (command, args, options) => {
@@ -128,7 +127,6 @@ describe("CodexCredentialStrategy", () => {
         });
         return child;
       },
-      openUrl,
       warningLogger: () => undefined,
     });
 
@@ -139,18 +137,14 @@ describe("CodexCredentialStrategy", () => {
     expect(spawnCalls[0]?.args).toEqual(["login"]);
     expect(spawnCalls[0]?.options.stdio).toEqual(["ignore", "pipe", "pipe"]);
     expect(spawnCalls[0]?.options.env?.CODEX_HOME).toBe(profilePath);
-    expect(openUrl).toHaveBeenCalledWith(
-      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=xyz",
-    );
 
     const mode = (await fs.stat(authPath)).mode & 0o777;
     expect(mode).toBe(0o600);
   });
 
-  it("does not open non-oauth fallback URLs from login output", async () => {
+  it("accepts non-oauth fallback URL output without failing login", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
-    const openUrl = vi.fn(async () => undefined);
     const strategy = new CodexCredentialStrategy({
       spawnImpl: (_command, _args) => {
         const child = new EventEmitter() as ChildProcess;
@@ -172,19 +166,15 @@ describe("CodexCredentialStrategy", () => {
         });
         return child;
       },
-      openUrl,
       warningLogger: () => undefined,
     });
 
     await strategy.runLoginFlow(profilePath);
-
-    expect(openUrl).not.toHaveBeenCalled();
   });
 
-  it("does not auto-open URLs in --device-auth mode", async () => {
+  it("does not fail when URL text appears in --device-auth fallback output", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
-    const openUrl = vi.fn(async () => undefined);
 
     const strategy = new CodexCredentialStrategy({
       spawnImpl: (_command, args) => {
@@ -212,19 +202,15 @@ describe("CodexCredentialStrategy", () => {
         });
         return child;
       },
-      openUrl,
       warningLogger: () => undefined,
     });
 
     await strategy.runLoginFlow(profilePath);
-
-    expect(openUrl).not.toHaveBeenCalled();
   });
 
-  it("prefers oauth URL when lower-priority device URL appears first", async () => {
+  it("handles mixed URL output without opening additional browser windows", async () => {
     const profilePath = await makeTempDir();
     const authPath = path.join(profilePath, "auth.json");
-    const openUrl = vi.fn(async () => undefined);
     const strategy = new CodexCredentialStrategy({
       spawnImpl: (_command, _args) => {
         const child = new EventEmitter() as ChildProcess;
@@ -252,16 +238,10 @@ describe("CodexCredentialStrategy", () => {
         });
         return child;
       },
-      openUrl,
       warningLogger: () => undefined,
     });
 
     await strategy.runLoginFlow(profilePath);
-
-    expect(openUrl).toHaveBeenCalledTimes(1);
-    expect(openUrl).toHaveBeenCalledWith(
-      "https://auth.openai.com/oauth/authorize?response_type=code&client_id=abc&state=xyz",
-    );
   });
 
   it("falls back to codex login --device-auth when browser login fails", async () => {

@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import open from "open";
 import type {
   CredentialIsolationStrategy,
   CredentialLoginOptions,
@@ -13,7 +12,6 @@ type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions)
 export interface CodexCredentialStrategyOptions {
   readonly spawnImpl?: SpawnFn;
   readonly warningLogger?: (message: string) => void;
-  readonly openUrl?: (url: string) => Promise<void> | void;
 }
 
 const OSC8_URL_PATTERN = new RegExp(
@@ -25,7 +23,6 @@ const ANSI_SEQUENCE_PATTERN = new RegExp(
   "g",
 );
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/g;
-const MAX_URL_SCAN_BUFFER_CHARS = 16_000;
 const OAUTH_AUTHORIZE_SCORE = 7;
 const LOGIN_CANCELLED_MESSAGE = "Sign-in was cancelled. No account was added.";
 const LOGIN_EXPIRED_MESSAGE = "The sign-in code expired before completion. Please try connecting again.";
@@ -124,18 +121,6 @@ function loginUrlScore(url: string): number {
   }
 }
 
-function isOauthAuthorizeUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname.toLowerCase() === "auth.openai.com" &&
-      parsed.pathname.toLowerCase().startsWith("/oauth/authorize")
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function resolveCodexLoginUrl(rawOutput: string): string | null {
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -176,14 +161,6 @@ export function resolveCodexLoginUrl(rawOutput: string): string | null {
   return bestScore >= 2 ? bestUrl : null;
 }
 
-function resolveCodexOauthAuthorizeUrl(rawOutput: string): string | null {
-  const url = resolveCodexLoginUrl(rawOutput);
-  if (!url) {
-    return null;
-  }
-  return isOauthAuthorizeUrl(url) ? url : null;
-}
-
 function includesAny(haystack: string, patterns: readonly string[]): boolean {
   return patterns.some((pattern) => haystack.includes(pattern));
 }
@@ -216,12 +193,10 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
   readonly providerKind = "codex" as const;
   private readonly spawnImpl: SpawnFn;
   private readonly warningLogger: (message: string) => void;
-  private readonly openUrl: (url: string) => Promise<void> | void;
 
   constructor(options: CodexCredentialStrategyOptions = {}) {
     this.spawnImpl = options.spawnImpl ?? spawn;
     this.warningLogger = options.warningLogger ?? ((message) => console.warn(message));
-    this.openUrl = options.openUrl ?? ((url) => open(url, { wait: false }).then(() => undefined));
   }
 
   async initProfileDir(profilePath: string): Promise<void> {
@@ -292,19 +267,6 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         stdio: ["ignore", "pipe", "pipe"],
       });
       const recentOutputLines: string[] = [];
-      let urlScanBuffer = "";
-      let openedLoginUrl = false;
-
-      const openResolvedLoginUrl = (url: string) => {
-        if (openedLoginUrl) {
-          return;
-        }
-        openedLoginUrl = true;
-        Promise.resolve(this.openUrl(url)).catch((error) => {
-          const reason = error instanceof Error ? error.message : String(error);
-          this.warningLogger(`[codexStrategy] Failed to open login URL "${url}": ${reason}`);
-        });
-      };
 
       const recordOutput = (rawChunk: string) => {
         const chunk = rawChunk.trim();
@@ -323,32 +285,15 @@ export class CodexCredentialStrategy implements CredentialIsolationStrategy {
         }
       };
 
-      const maybeOpenLoginUrl = (rawChunk: string) => {
-        if (openedLoginUrl) {
-          return;
-        }
-        if (args.includes("--device-auth")) {
-          return;
-        }
-        urlScanBuffer = `${urlScanBuffer}\n${rawChunk}`.slice(-MAX_URL_SCAN_BUFFER_CHARS);
-        const loginUrl = resolveCodexOauthAuthorizeUrl(urlScanBuffer);
-        if (!loginUrl) {
-          return;
-        }
-        openResolvedLoginUrl(loginUrl);
-      };
-
       proc.stdout?.setEncoding?.("utf8");
       proc.stderr?.setEncoding?.("utf8");
       proc.stdout?.on("data", (chunk: Buffer | string) => {
         const text = String(chunk);
         recordOutput(text);
-        maybeOpenLoginUrl(text);
       });
       proc.stderr?.on("data", (chunk: Buffer | string) => {
         const text = String(chunk);
         recordOutput(text);
-        maybeOpenLoginUrl(text);
       });
 
       proc.on("error", (error) => {

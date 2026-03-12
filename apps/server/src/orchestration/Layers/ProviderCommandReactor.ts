@@ -502,7 +502,44 @@ const make = Effect.gen(function* () {
       ...(event.payload.modelOptions !== undefined ? { modelOptions: event.payload.modelOptions } : {}),
       interactionMode: event.payload.interactionMode,
       createdAt: event.payload.createdAt,
-    });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.gen(function* () {
+          const error = Cause.squash(cause);
+          const detail = toErrorMessage(error);
+          const threadAfterFailure = yield* resolveThread(event.payload.threadId);
+          const sessionProviderName =
+            threadAfterFailure?.session?.providerName ?? event.payload.provider ?? null;
+
+          yield* appendProviderFailureActivity({
+            threadId: event.payload.threadId,
+            kind: "provider.turn.start.failed",
+            summary: "Provider turn start failed",
+            detail,
+            turnId: null,
+            createdAt: event.payload.createdAt,
+          });
+
+          yield* providerService.stopSession({ threadId: event.payload.threadId }).pipe(
+            Effect.catchCause(() => Effect.void),
+          );
+
+          yield* setThreadSession({
+            threadId: event.payload.threadId,
+            session: {
+              threadId: event.payload.threadId,
+              status: "error",
+              providerName: sessionProviderName,
+              runtimeMode: threadAfterFailure?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+              activeTurnId: null,
+              lastError: detail,
+              updatedAt: event.payload.createdAt,
+            },
+            createdAt: event.payload.createdAt,
+          });
+        }),
+      ),
+    );
   });
 
   const processTurnInterruptRequested = Effect.fnUntraced(function* (
