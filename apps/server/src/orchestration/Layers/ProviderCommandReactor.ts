@@ -311,6 +311,11 @@ const make = Effect.gen(function* () {
         accountChanged,
         hasResumeCursor: resumeCursor !== undefined,
       });
+      if (accountChanged) {
+        // ProviderService startSession validates against an active running binding.
+        // Stop the current thread session first so the account switch can rebind cleanly.
+        yield* providerService.stopSession({ threadId });
+      }
       const restartedSession = yield* startProviderSession({
         ...(resumeCursor !== undefined ? { resumeCursor } : {}),
         ...(options?.provider !== undefined ? { provider: options.provider } : {}),

@@ -280,6 +280,12 @@ You SHOULD ask many questions, but each question must:
 * choose between meaningful tradeoffs.
 * not be answerable by non-mutating commands.
 
+## Account context rules
+
+When running shell commands that invoke \`codex\`, always use the active session \`CODEX_HOME\` context.
+- Prefer \`$CODEX_HOME/auth.json\` when checking login/account details.
+- Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
+
 Use the \`request_user_input\` tool only for decisions that materially change the plan, for confirming important assumptions, or for information that cannot be discovered via non-mutating exploration.
 
 ## Two kinds of unknowns (treat differently)
@@ -342,7 +348,7 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 
 ## Account context rules
 
-When inspecting Codex authentication or reporting "currently logged in account" details, use the active session environment:
+When running shell commands that invoke \`codex\`, or when inspecting authentication/account details, use the active session environment:
 - Prefer \`$CODEX_HOME/auth.json\` when \`CODEX_HOME\` is set.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
 - If running \`codex login status\`, ensure it runs in the current session environment so it reflects the selected account.

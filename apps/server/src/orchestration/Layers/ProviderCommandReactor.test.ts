@@ -600,6 +600,10 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.startSession.mock.calls.length === 2);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
 
+    expect(harness.stopSession.mock.calls.length).toBe(1);
+    expect(harness.stopSession.mock.calls[0]?.[0]).toEqual({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+    });
     expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
       accountId: "acc_codex_plus",
     });
