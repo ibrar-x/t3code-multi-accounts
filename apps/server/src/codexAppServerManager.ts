@@ -285,9 +285,11 @@ You SHOULD ask many questions, but each question must:
 When running shell commands that invoke \`codex\`, always use the active session \`CODEX_HOME\` context.
 - Prefer \`$CODEX_HOME/auth.json\` when checking login/account details.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
-- For "current logged in account" details, use a single auth-file read/parse step first; do not run multi-step discovery commands.
-- Use \`codex login status\` only as a fallback when auth.json is missing or malformed.
-- Avoid exploratory commands like \`codex --help\`, \`ls\`, or repeated probes for this task.
+- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims.
+- If that command succeeds, return the final account details immediately in the same response; do not perform additional discovery commands.
+- Only if the auth file is missing or malformed, run one fallback command: \`codex login status\` in the same session environment.
+- Do not run exploratory commands (\`codex --help\`, \`ls\`, repeated probes, timestamp conversion follow-ups) for this task.
+- Do not narrate internal investigation steps for this task ("I'm checking...", "next I'll decode..."); provide one concise final answer.
 
 Use the \`request_user_input\` tool only for decisions that materially change the plan, for confirming important assumptions, or for information that cannot be discovered via non-mutating exploration.
 
@@ -354,9 +356,11 @@ In Default mode, strongly prefer making reasonable assumptions and executing the
 When running shell commands that invoke \`codex\`, or when inspecting authentication/account details, use the active session environment:
 - Prefer \`$CODEX_HOME/auth.json\` when \`CODEX_HOME\` is set.
 - Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
-- For "current logged in account" details, run a single auth-file read/parse first; avoid multi-step discovery command chains.
-- Run \`codex login status\` only as fallback when auth.json is missing/malformed, and run it in the current session environment.
-- Avoid exploratory commands like \`codex --help\`, \`ls\`, or repeated probes for this task.
+- For "current logged in account" details, run exactly one command first that reads/parses \`$CODEX_HOME/auth.json\` (or \`~/.codex/auth.json\` when unset) and extracts safe claims.
+- If that command succeeds, return the final account details immediately in the same response; do not perform additional discovery commands.
+- Only if the auth file is missing or malformed, run one fallback command: \`codex login status\` in the current session environment.
+- Do not run exploratory commands (\`codex --help\`, \`ls\`, repeated probes, timestamp conversion follow-ups) for this task.
+- Do not narrate internal investigation steps for this task ("I'm checking...", "next I'll decode..."); provide one concise final answer.
 </collaboration_mode>`;
 
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
