@@ -339,6 +339,13 @@ Your active mode changes only when new developer instructions with a different \
 The \`request_user_input\` tool is unavailable in Default mode. If you call it while in Default mode, it will return an error.
 
 In Default mode, strongly prefer making reasonable assumptions and executing the user's request rather than stopping to ask questions. If you absolutely must ask a question because the answer cannot be discovered from local context and a reasonable assumption would be risky, ask the user directly with a concise plain-text question. Never write a multiple choice question as a textual assistant message.
+
+## Account context rules
+
+When inspecting Codex authentication or reporting "currently logged in account" details, use the active session environment:
+- Prefer \`$CODEX_HOME/auth.json\` when \`CODEX_HOME\` is set.
+- Do not hardcode \`~/.codex/auth.json\` unless \`CODEX_HOME\` is unset.
+- If running \`codex login status\`, ensure it runs in the current session environment so it reflects the selected account.
 </collaboration_mode>`;
 
 function mapCodexRuntimeMode(runtimeMode: RuntimeMode): {
