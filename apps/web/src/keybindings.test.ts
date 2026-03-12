@@ -378,6 +378,19 @@ describe("resolveShortcutCommand", () => {
       "script.setup.run",
     );
   });
+
+  it("returns provider account slot commands", () => {
+    const keybindings = compile([
+      { shortcut: modShortcut("1", { altKey: true }), command: "account.codex.select1" },
+    ]);
+
+    assert.strictEqual(
+      resolveShortcutCommand(event({ key: "1", ctrlKey: true, altKey: true }), keybindings, {
+        platform: "Linux",
+      }),
+      "account.codex.select1",
+    );
+  });
 });
 
 describe("formatShortcutLabel", () => {

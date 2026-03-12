@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
+import { ProviderKind } from "./orchestration";
 
 export const MAX_KEYBINDING_VALUE_LENGTH = 64;
 const MAX_KEYBINDING_WHEN_LENGTH = 256;
@@ -17,7 +18,16 @@ const STATIC_KEYBINDING_COMMANDS = [
   "chat.new",
   "chat.newLocal",
   "editor.openFavorite",
+  "account.switcher.open",
 ] as const;
+
+const ACCOUNT_SLOT_NUMBER = Schema.Literals(["1", "2", "3", "4", "5"]);
+export const ACCOUNT_SELECT_COMMAND_PATTERN = Schema.TemplateLiteral([
+  Schema.Literal("account."),
+  ProviderKind,
+  Schema.Literal(".select"),
+  ACCOUNT_SLOT_NUMBER,
+]);
 
 export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
   Schema.Literal("script."),
@@ -30,6 +40,7 @@ export const SCRIPT_RUN_COMMAND_PATTERN = Schema.TemplateLiteral([
 
 export const KeybindingCommand = Schema.Union([
   Schema.Literals(STATIC_KEYBINDING_COMMANDS),
+  ACCOUNT_SELECT_COMMAND_PATTERN,
   SCRIPT_RUN_COMMAND_PATTERN,
 ]);
 export type KeybindingCommand = typeof KeybindingCommand.Type;

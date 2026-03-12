@@ -1,10 +1,19 @@
-import type { AccountCheckReason, ProviderAccount, ProviderKind, ThreadId } from "@t3tools/contracts";
+import { useQuery } from "@tanstack/react-query";
+import type {
+  AccountCheckReason,
+  ProviderAccount,
+  ProviderKind,
+  ResolvedKeybindingsConfig,
+  ThreadId,
+} from "@t3tools/contracts";
 import { ChevronDownIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { defaultAccountDisplayLabel } from "../accountDisplay";
 import { toAccountActionErrorMessage } from "../accountErrorMessages";
 import { useAppSettings } from "../appSettings";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import { serverConfigQueryOptions } from "../lib/serverReactQuery";
 import { readNativeApi } from "../nativeApi";
 import {
   cleanupActiveAccountByProvider,
@@ -36,7 +45,6 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
-  MenuShortcut,
   MenuSub,
   MenuSubPopup,
   MenuSubTrigger,
@@ -58,6 +66,7 @@ const STATUS_LABELS: Record<AccountCheckReason, string> = {
 };
 
 const WARN_STATUS: ReadonlySet<AccountCheckReason> = new Set(["missing", "malformed", "expired"]);
+const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 
 function accountLabel(account: ProviderAccount): string {
   if (!account.credentialStatus || account.credentialStatus === "ok") {
@@ -84,17 +93,19 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
   return target.closest("input, textarea, select, [contenteditable='true']") !== null;
 }
 
-function isOpenShortcut(event: KeyboardEvent): boolean {
-  if (event.defaultPrevented || event.altKey || !event.shiftKey) {
-    return false;
+function parseAccountSelectCommand(command: string): { provider: ProviderKind; slot: number } | null {
+  const match = /^account\.(codex|claudeCode|cursor)\.select([1-5])$/.exec(command);
+  if (!match?.[1] || !match[2]) {
+    return null;
   }
-  if (event.key.toLowerCase() !== "a") {
-    return false;
+  const slot = Number(match[2]);
+  if (!Number.isInteger(slot) || slot < 1 || slot > 5) {
+    return null;
   }
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  return isMac
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
+  return {
+    provider: match[1] as ProviderKind,
+    slot,
+  };
 }
 
 export interface AccountSwitcherProps {
@@ -146,6 +157,56 @@ function formatResetLabel(account: ProviderAccount | null): string | null {
   });
 }
 
+function CircleUsageIndicator({
+  percent,
+}: {
+  readonly percent: number | null;
+}) {
+  const size = 16;
+  const strokeWidth = 2;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const normalizedPercent = percent !== null ? Math.max(0, Math.min(100, percent)) : null;
+  const progress = normalizedPercent ?? 0;
+  const offset = circumference * (1 - progress / 100);
+
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 shrink-0"
+      viewBox={`0 0 ${size} ${size}`}
+      role="presentation"
+    >
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity={0.2}
+        strokeWidth={strokeWidth}
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeOpacity={normalizedPercent === null ? 0.35 : 0.8}
+        strokeLinecap="round"
+        strokeWidth={strokeWidth}
+        style={{
+          transform: "rotate(-90deg)",
+          transformOrigin: "50% 50%",
+          strokeDasharray: circumference,
+          strokeDashoffset: offset,
+          transition: "stroke-dashoffset 180ms ease",
+        }}
+      />
+    </svg>
+  );
+}
+
 export function AccountSwitcher({
   provider,
   disabled = false,
@@ -153,7 +214,9 @@ export function AccountSwitcher({
   sessionActive = false,
   threadId = null,
 }: AccountSwitcherProps) {
+  const { data: serverConfig } = useQuery(serverConfigQueryOptions());
   const { settings, updateSettings } = useAppSettings();
+  const keybindings = serverConfig?.keybindings ?? EMPTY_KEYBINDINGS;
   const hasHydratedAccountsRef = useRef(false);
   const settingsRef = useRef(settings);
   const [isOpen, setIsOpen] = useState(false);
@@ -352,26 +415,6 @@ export function AccountSwitcher({
     return () => window.clearInterval(timer);
   }, [refreshSessionRateLimitDetails, selectedValue, sessionActive]);
 
-  useEffect(() => {
-    if (variant !== "inline") {
-      return;
-    }
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (disabled || isEditableEventTarget(event.target) || !isOpenShortcut(event)) {
-        return;
-      }
-      event.preventDefault();
-      setIsOpen(true);
-      setInlineError(null);
-    };
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-    };
-  }, [disabled, variant]);
-
   const applySelection = useCallback(
     (value: string) => {
       if (disabled) {
@@ -394,6 +437,54 @@ export function AccountSwitcher({
     },
     [commitMultiAccount, disabled, provider, providerAccounts],
   );
+
+  useEffect(() => {
+    if (variant !== "inline") {
+      return;
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (disabled || isEditableEventTarget(event.target)) {
+        return;
+      }
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: false,
+          terminalOpen: false,
+        },
+      });
+      if (!command) {
+        return;
+      }
+
+      if (command === "account.switcher.open") {
+        event.preventDefault();
+        event.stopPropagation();
+        setIsOpen(true);
+        setInlineError(null);
+        return;
+      }
+
+      const selection = parseAccountSelectCommand(command);
+      if (!selection || selection.provider !== provider) {
+        return;
+      }
+      const account = providerAccounts[selection.slot - 1];
+      if (!account) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      applySelection(account.id);
+      setIsOpen(false);
+      setInlineError(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [applySelection, disabled, keybindings, provider, providerAccounts, variant]);
 
   const submitConnectAccount = useCallback(async () => {
     if (provider !== "codex") {
@@ -456,11 +547,17 @@ export function AccountSwitcher({
     selectedValue === DEFAULT_OPTION_VALUE
       ? defaultAccountDisplayLabel(defaultProviderAccount)
       : activeAccount?.name ?? defaultAccountDisplayLabel(defaultProviderAccount);
-  const triggerLabelWithLimit =
-    primaryRemainingPercent !== null ? `${triggerLabel} · ${primaryRemainingPercent}%` : triggerLabel;
   const contextWindowFullPercent =
     primaryUsedPercent ?? (primaryRemainingPercent !== null ? 100 - primaryRemainingPercent : null);
   const creditsBalance = detailsAccount?.codexProfile?.rateLimits?.credits?.balance?.trim() || null;
+  const remainingLimitLine =
+    primaryRemainingPercent !== null
+      ? `${primaryRemainingPercent}% remaining`
+      : creditsBalance && creditsBalance.length > 0
+        ? creditsBalance.includes("/")
+          ? creditsBalance
+          : `${creditsBalance} remaining`
+        : "Unknown";
   const contextUsageLine =
     creditsBalance && creditsBalance.length > 0
       ? creditsBalance.includes("/")
@@ -473,7 +570,9 @@ export function AccountSwitcher({
           : primaryRemainingPercent !== null
             ? `${primaryRemainingPercent}% remaining`
             : "Usage details unavailable";
-  const menuTrigger = (
+  const openSwitcherShortcutLabel =
+    shortcutLabelForCommand(keybindings, "account.switcher.open") ?? "⌘⇧A";
+  const selectorTrigger = (
     <MenuTrigger
       render={
         <Button
@@ -483,10 +582,10 @@ export function AccountSwitcher({
         />
       }
       disabled={disabled || isConnecting}
-      title="Switch account (Cmd+Shift+A)"
+      title={`Switch account (${openSwitcherShortcutLabel})`}
     >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="truncate">{triggerLabelWithLimit}</span>
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">{triggerLabel}</span>
         <ChevronDownIcon aria-hidden="true" className="size-3 opacity-60" />
       </span>
     </MenuTrigger>
@@ -494,7 +593,32 @@ export function AccountSwitcher({
 
   if (variant === "inline") {
     return (
-      <div className="min-w-0 max-w-full">
+      <div className="flex min-w-0 max-w-full items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6 shrink-0 p-0 text-muted-foreground/70 hover:text-foreground/80"
+                title="Usage details"
+                aria-label="Usage details"
+              />
+            }
+          >
+            <CircleUsageIndicator percent={contextWindowFullPercent} />
+          </TooltipTrigger>
+          <TooltipPopup side="top" sideOffset={8} className="w-60 whitespace-normal px-3 py-2">
+            <div className="space-y-1 text-center">
+              <p className="text-xs text-muted-foreground">Remaining limit:</p>
+              <p className="text-xl font-semibold leading-none">{remainingLimitLine}</p>
+              <p className="text-sm font-medium">{contextUsageLine}</p>
+              <p className="pt-1 text-sm text-muted-foreground">
+                The active provider manages context automatically
+              </p>
+            </div>
+          </TooltipPopup>
+        </Tooltip>
         <Menu
           open={isOpen}
           onOpenChange={(open) => {
@@ -505,25 +629,7 @@ export function AccountSwitcher({
             setIsOpen(open);
           }}
         >
-          {isOpen ? (
-            menuTrigger
-          ) : (
-            <Tooltip>
-              <TooltipTrigger render={menuTrigger} />
-              <TooltipPopup side="top" sideOffset={8} className="w-60 whitespace-normal px-3 py-2">
-                <div className="space-y-1 text-center">
-                  <p className="text-xs text-muted-foreground">Context window:</p>
-                  <p className="text-xl font-semibold leading-none">
-                    {contextWindowFullPercent !== null ? `${contextWindowFullPercent}% full` : "Unknown"}
-                  </p>
-                  <p className="text-sm font-medium">{contextUsageLine}</p>
-                  <p className="pt-1 text-sm text-muted-foreground">
-                    Codex automatically compacts its context
-                  </p>
-                </div>
-              </TooltipPopup>
-            </Tooltip>
-          )}
+          {selectorTrigger}
           <MenuPopup align="end" side="top">
             <MenuSub>
               <MenuSubTrigger>{PROVIDER_LABELS[provider]}</MenuSubTrigger>
@@ -565,7 +671,6 @@ export function AccountSwitcher({
                   }}
                 >
                   {isConnecting ? "Connecting account..." : "+ Connect account"}
-                  <MenuShortcut>⌘⇧A</MenuShortcut>
                 </MenuItem>
               </MenuSubPopup>
             </MenuSub>

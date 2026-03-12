@@ -52,6 +52,18 @@ it.effect("parses keybinding rules", () =>
       command: "chat.newLocal",
     });
     assert.strictEqual(parsedLocal.command, "chat.newLocal");
+
+    const parsedAccountSwitcherOpen = yield* decode(KeybindingRule, {
+      key: "mod+shift+a",
+      command: "account.switcher.open",
+    });
+    assert.strictEqual(parsedAccountSwitcherOpen.command, "account.switcher.open");
+
+    const parsedAccountSelect = yield* decode(KeybindingRule, {
+      key: "mod+alt+1",
+      command: "account.codex.select1",
+    });
+    assert.strictEqual(parsedAccountSelect.command, "account.codex.select1");
   }),
 );
 
@@ -64,6 +76,14 @@ it.effect("rejects invalid command values", () =>
       }),
     );
     assert.strictEqual(result._tag, "Failure");
+
+    const invalidAccountSlot = yield* Effect.exit(
+      decode(KeybindingRule, {
+        key: "mod+alt+6",
+        command: "account.codex.select6",
+      }),
+    );
+    assert.strictEqual(invalidAccountSlot._tag, "Failure");
   }),
 );
 

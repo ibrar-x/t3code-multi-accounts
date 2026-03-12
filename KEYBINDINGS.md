@@ -26,7 +26,13 @@ See the full schema for more details: [`packages/contracts/src/keybindings.ts`](
   { "key": "mod+n", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+o", "command": "chat.new", "when": "!terminalFocus" },
   { "key": "mod+shift+n", "command": "chat.newLocal", "when": "!terminalFocus" },
-  { "key": "mod+o", "command": "editor.openFavorite" }
+  { "key": "mod+o", "command": "editor.openFavorite" },
+  { "key": "mod+shift+a", "command": "account.switcher.open", "when": "!terminalFocus" },
+  { "key": "mod+alt+1", "command": "account.codex.select1", "when": "!terminalFocus" },
+  { "key": "mod+alt+2", "command": "account.codex.select2", "when": "!terminalFocus" },
+  { "key": "mod+alt+3", "command": "account.codex.select3", "when": "!terminalFocus" },
+  { "key": "mod+alt+4", "command": "account.codex.select4", "when": "!terminalFocus" },
+  { "key": "mod+alt+5", "command": "account.codex.select5", "when": "!terminalFocus" }
 ]
 ```
 
@@ -53,6 +59,8 @@ Invalid rules are ignored. Invalid config files are ignored. Warnings are logged
 - `chat.new`: create a new chat thread preserving the active thread's branch/worktree state
 - `chat.newLocal`: create a new local chat thread for the active project (no worktree context)
 - `editor.openFavorite`: open current project/worktree in the last-used editor
+- `account.switcher.open`: open the active provider account switcher
+- `account.{provider}.select{N}`: switch active account slot for a provider (`N` is `1` to `5`)
 - `script.{id}.run`: run a project script by id (for example `script.test.run`)
 
 ### Key Syntax
