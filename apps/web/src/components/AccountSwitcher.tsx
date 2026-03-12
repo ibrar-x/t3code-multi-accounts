@@ -256,19 +256,25 @@ export function AccountSwitcher({
         setSessionProviderAccount(null);
       }
 
-      if (selectedAccountId) {
+      const accountIdToCheck = currentSnapshot.account?.id ?? selectedAccountId;
+      if (accountIdToCheck) {
         try {
-          const checked = await api.accounts.check({ accountId: selectedAccountId });
+          const checked = await api.accounts.check({ accountId: accountIdToCheck });
           if (checked.account) {
-            const nextAccounts = upsertAccountById(currentMultiAccount.accounts, checked.account);
-            const nextActive = cleanupActiveAccountByProvider(
-              currentMultiAccount.activeAccountByProvider,
-              nextAccounts,
-            );
-            commitMultiAccount({
-              accounts: nextAccounts,
-              activeAccountByProvider: nextActive,
-            });
+            if (checked.account.isDefault) {
+              setDefaultProviderAccount(checked.account);
+              setSessionProviderAccount(checked.account);
+            } else {
+              const nextAccounts = upsertAccountById(currentMultiAccount.accounts, checked.account);
+              const nextActive = cleanupActiveAccountByProvider(
+                currentMultiAccount.activeAccountByProvider,
+                nextAccounts,
+              );
+              commitMultiAccount({
+                accounts: nextAccounts,
+                activeAccountByProvider: nextActive,
+              });
+            }
           }
         } catch {
           // Non-blocking: keep existing account details if a refresh probe fails.

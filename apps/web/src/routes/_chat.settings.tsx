@@ -1,14 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
-import { type ProviderKind } from "@t3tools/contracts";
-import { getModelOptions, normalizeModelSlug } from "@t3tools/shared/model";
 import { ZapIcon } from "lucide-react";
 
 import {
   APP_SERVICE_TIER_OPTIONS,
-  MAX_CUSTOM_MODEL_LENGTH,
-  shouldShowFastTierIcon,
   useAppSettings,
 } from "../appSettings";
 import { isElectron } from "../env";
@@ -26,7 +22,6 @@ import {
   DialogPopup,
   DialogTitle,
 } from "../components/ui/dialog";
-import { Input } from "../components/ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Switch } from "../components/ui/switch";
 import { Textarea } from "../components/ui/textarea";
@@ -51,52 +46,6 @@ const THEME_OPTIONS = [
   },
 ] as const;
 
-const MODEL_PROVIDER_SETTINGS: Array<{
-  provider: ProviderKind;
-  title: string;
-  description: string;
-  placeholder: string;
-  example: string;
-}> = [
-  {
-    provider: "codex",
-    title: "Codex",
-    description: "Save additional Codex model slugs for the picker and `/model` command.",
-    placeholder: "your-codex-model-slug",
-    example: "gpt-6.7-codex-ultra-preview",
-  },
-] as const;
-
-function getCustomModelsForProvider(
-  settings: ReturnType<typeof useAppSettings>["settings"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-    default:
-      return settings.customCodexModels;
-  }
-}
-
-function getDefaultCustomModelsForProvider(
-  defaults: ReturnType<typeof useAppSettings>["defaults"],
-  provider: ProviderKind,
-) {
-  switch (provider) {
-    case "codex":
-    default:
-      return defaults.customCodexModels;
-  }
-}
-
-function patchCustomModels(provider: ProviderKind, models: string[]) {
-  switch (provider) {
-    case "codex":
-    default:
-      return { customCodexModels: models };
-  }
-}
-
 function SettingsRouteView() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const { settings, defaults, updateSettings } = useAppSettings();
@@ -109,19 +58,6 @@ function SettingsRouteView() {
   const [keybindingsDialogError, setKeybindingsDialogError] = useState<string | null>(null);
   const keybindingsRequestVersionRef = useRef(0);
   const keybindingsDraftDirtyRef = useRef(false);
-  const [customModelInputByProvider, setCustomModelInputByProvider] = useState<
-    Record<ProviderKind, string>
-  >({
-    codex: "",
-    claudeCode: "",
-    cursor: "",
-  });
-  const [customModelErrorByProvider, setCustomModelErrorByProvider] = useState<
-    Partial<Record<ProviderKind, string | null>>
-  >({});
-
-  const codexBinaryPath = settings.codexBinaryPath;
-  const codexHomePath = settings.codexHomePath;
   const codexServiceTier = settings.codexServiceTier;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const isModalSurface = SETTINGS_SURFACE_MODE === "modal";
@@ -197,62 +133,6 @@ function SettingsRouteView() {
         setIsKeybindingsSaving(false);
       });
   }, [closeKeybindingsEditor, keybindingsDraft, queryClient]);
-
-  const addCustomModel = useCallback((provider: ProviderKind) => {
-    const customModelInput = customModelInputByProvider[provider];
-    const customModels = getCustomModelsForProvider(settings, provider);
-    const normalized = normalizeModelSlug(customModelInput, provider);
-    if (!normalized) {
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: "Enter a model slug.",
-      }));
-      return;
-    }
-    if (getModelOptions(provider).some((option) => option.slug === normalized)) {
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: "That model is already built in.",
-      }));
-      return;
-    }
-    if (normalized.length > MAX_CUSTOM_MODEL_LENGTH) {
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: `Model slugs must be ${MAX_CUSTOM_MODEL_LENGTH} characters or less.`,
-      }));
-      return;
-    }
-    if (customModels.includes(normalized)) {
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: "That custom model is already saved.",
-      }));
-      return;
-    }
-
-    updateSettings(patchCustomModels(provider, [...customModels, normalized]));
-    setCustomModelInputByProvider((existing) => ({
-      ...existing,
-      [provider]: "",
-    }));
-    setCustomModelErrorByProvider((existing) => ({
-      ...existing,
-      [provider]: null,
-    }));
-  }, [customModelInputByProvider, settings, updateSettings]);
-
-  const removeCustomModel = useCallback(
-    (provider: ProviderKind, slug: string) => {
-      const customModels = getCustomModelsForProvider(settings, provider);
-      updateSettings(patchCustomModels(provider, customModels.filter((model) => model !== slug)));
-      setCustomModelErrorByProvider((existing) => ({
-        ...existing,
-        [provider]: null,
-      }));
-    },
-    [settings, updateSettings],
-  );
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground isolate">
@@ -333,73 +213,9 @@ function SettingsRouteView() {
 
             <section className="rounded-2xl border border-border bg-card p-5">
               <div className="mb-4">
-                <h2 className="text-sm font-medium text-foreground">Codex advanced</h2>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Optional overrides for non-default Codex binary/home paths.
-                </p>
-              </div>
-
-              <details className="rounded-xl border border-border bg-background/60 p-3">
-                <summary className="cursor-pointer list-none text-xs font-medium text-foreground">
-                  Show app-server override paths
-                </summary>
-                <div className="mt-3 space-y-4">
-                  <label htmlFor="codex-binary-path" className="block space-y-1">
-                    <span className="text-xs font-medium text-foreground">Codex binary path</span>
-                    <Input
-                      id="codex-binary-path"
-                      value={codexBinaryPath}
-                      onChange={(event) => updateSettings({ codexBinaryPath: event.target.value })}
-                      placeholder="codex"
-                      spellCheck={false}
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      Leave blank to use <code>codex</code> from your PATH.
-                    </span>
-                  </label>
-
-                  <label htmlFor="codex-home-path" className="block space-y-1">
-                    <span className="text-xs font-medium text-foreground">CODEX_HOME path</span>
-                    <Input
-                      id="codex-home-path"
-                      value={codexHomePath}
-                      onChange={(event) => updateSettings({ codexHomePath: event.target.value })}
-                      placeholder="/Users/you/.codex"
-                      spellCheck={false}
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      Optional custom Codex home/config directory.
-                    </span>
-                  </label>
-
-                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                    <p>
-                      Binary source:{" "}
-                      <span className="font-medium text-foreground">{codexBinaryPath || "PATH"}</span>
-                    </p>
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      onClick={() =>
-                        updateSettings({
-                          codexBinaryPath: defaults.codexBinaryPath,
-                          codexHomePath: defaults.codexHomePath,
-                        })
-                      }
-                    >
-                      Reset codex overrides
-                    </Button>
-                  </div>
-                </div>
-              </details>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-4">
                 <h2 className="text-sm font-medium text-foreground">Models</h2>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Save additional Codex model slugs so they appear in the chat model picker and
-                  `/model` suggestions.
+                  Configure default model behavior for Codex sessions.
                 </p>
               </div>
 
@@ -440,133 +256,6 @@ function SettingsRouteView() {
                       ?.description ?? "Use Codex defaults without forcing a service tier."}
                   </span>
                 </label>
-
-                {MODEL_PROVIDER_SETTINGS.map((providerSettings) => {
-                  const provider = providerSettings.provider;
-                  const customModels = getCustomModelsForProvider(settings, provider);
-                  const customModelInput = customModelInputByProvider[provider];
-                  const customModelError = customModelErrorByProvider[provider] ?? null;
-                  return (
-                    <div
-                      key={provider}
-                      className="rounded-xl border border-border bg-background/50 p-4"
-                    >
-                      <div className="mb-4">
-                        <h3 className="text-sm font-medium text-foreground">
-                          {providerSettings.title}
-                        </h3>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {providerSettings.description}
-                        </p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                          <label
-                            htmlFor={`custom-model-slug-${provider}`}
-                            className="block flex-1 space-y-1"
-                          >
-                            <span className="text-xs font-medium text-foreground">
-                              Custom model slug
-                            </span>
-                            <Input
-                              id={`custom-model-slug-${provider}`}
-                              value={customModelInput}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setCustomModelInputByProvider((existing) => ({
-                                  ...existing,
-                                  [provider]: value,
-                                }));
-                                if (customModelError) {
-                                  setCustomModelErrorByProvider((existing) => ({
-                                    ...existing,
-                                    [provider]: null,
-                                  }));
-                                }
-                              }}
-                              onKeyDown={(event) => {
-                                if (event.key !== "Enter") return;
-                                event.preventDefault();
-                                addCustomModel(provider);
-                              }}
-                              placeholder={providerSettings.placeholder}
-                              spellCheck={false}
-                            />
-                            <span className="text-xs text-muted-foreground">
-                              Example: <code>{providerSettings.example}</code>
-                            </span>
-                          </label>
-
-                          <Button
-                            className="sm:mt-6"
-                            type="button"
-                            onClick={() => addCustomModel(provider)}
-                          >
-                            Add model
-                          </Button>
-                        </div>
-
-                        {customModelError ? (
-                          <p className="text-xs text-destructive">{customModelError}</p>
-                        ) : null}
-
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                            <p>Saved custom models: {customModels.length}</p>
-                            {customModels.length > 0 ? (
-                              <Button
-                                size="xs"
-                                variant="outline"
-                                onClick={() =>
-                                  updateSettings(
-                                    patchCustomModels(
-                                      provider,
-                                      [...getDefaultCustomModelsForProvider(defaults, provider)],
-                                    ),
-                                  )
-                                }
-                              >
-                                Reset custom models
-                              </Button>
-                            ) : null}
-                          </div>
-
-                          {customModels.length > 0 ? (
-                            <div className="space-y-2">
-                              {customModels.map((slug) => (
-                                <div
-                                  key={`${provider}:${slug}`}
-                                  className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
-                                >
-                                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                                    {provider === "codex" && shouldShowFastTierIcon(slug, codexServiceTier) ? (
-                                      <ZapIcon className="size-3.5 shrink-0 text-amber-500" />
-                                    ) : null}
-                                    <code className="min-w-0 flex-1 truncate text-xs text-foreground">
-                                      {slug}
-                                    </code>
-                                  </div>
-                                  <Button
-                                    size="xs"
-                                    variant="ghost"
-                                    onClick={() => removeCustomModel(provider, slug)}
-                                  >
-                                    Remove
-                                  </Button>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="rounded-lg border border-dashed border-border bg-background px-3 py-4 text-xs text-muted-foreground">
-                              No custom models saved yet.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             </section>
 
